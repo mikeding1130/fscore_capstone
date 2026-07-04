@@ -59,10 +59,5 @@ via the loaders in `src/fscore/data/loaders.py` (interfaces documented there).
 | US | TODO | TODO | TODO | ~2000–2025 |
 | Japan | TODO | TODO | TODO | ~2000–2025 |
 | Malaysia | TODO | TODO | TODO | 2019-12 – 2025-12 (current access) |
-| Vietnam | team DB ✅ | team DB ✅ | verify | per DB |
+| Vietnam | TODO | TODO | TODO | ~2000–2025 |
 
-## References
-
-Piotroski (2000); Markowitz (1952); Laloux et al. (1999); Marchenko–Pastur
-(1967); López de Prado (2020); DeMiguel, Garlappi & Uppal (2009);
-Fama & French (1992, 1993). Full MLA bibliography in the report.

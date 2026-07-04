@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-BASKET_SIZE = 35  # frozen-scope default; reconcile 30 vs 35 in final docs
+BASKET_SIZE = 30  # frozen-scope default;
 
 
 def fscore_basket(scored: pd.DataFrame, k: int = BASKET_SIZE) -> list[str]:
