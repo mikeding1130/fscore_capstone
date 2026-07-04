@@ -66,7 +66,6 @@ def high_bm_subset(universe: pd.DataFrame, quantile: float = 0.2) -> pd.DataFram
 
 # ----------------------------------------------------------------------
 # Synthetic demo data — clearly labeled; exists so the pipeline is runnable
-# end-to-end before real adapters land. Not for any empirical claim.
 # ----------------------------------------------------------------------
 
 def make_demo_market(n_stocks: int = 100, year: int = 2023, seed: int = 7,
