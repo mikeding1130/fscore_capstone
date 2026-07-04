@@ -1,0 +1,7 @@
+numpy>=1.24
+pandas>=2.0
+matplotlib>=3.7
+scipy>=1.10
+cvxpy>=1.4          # exact constrained GMV (TODO hooks in construction/)
+statsmodels>=0.14   # factor regressions (extension)
+jupyterlab>=4.0
