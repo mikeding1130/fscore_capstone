@@ -231,8 +231,10 @@ class StudyResult:
         stat = metrics(self.daily[strategy].dropna())
         dist = self.mc_summary(construction)
         rows = {}
+        # max_drawdown is stored as a negative number, so "higher" (less
+        # negative, i.e. shallower) is better — same direction as the others
         for m, hib in [("ann_return", True), ("sharpe", True),
-                       ("max_drawdown", False)]:
+                       ("max_drawdown", True)]:
             rows[m] = vs_random(stat[m], dist[m].tolist(), higher_is_better=hib)
             rows[m]["fscore"] = stat[m]
         return pd.DataFrame(rows).T[["fscore", "random_mean", "random_std",

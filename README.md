@@ -61,6 +61,24 @@ jupyter lab notebooks/03_us_full_study.ipynb      # or 04_japan_full_study
 Notebooks `01`/`02` run end-to-end on **clearly-labeled synthetic demo data**
 (no network needed); `03`/`04` run the full study on the cached real data.
 
+## Headline results — developed pair
+
+Full tables and charts live in notebooks `03`/`04` (executed) and `results/`.
+
+| | US (15 formations, Jul 2011 – Dec 2025) | Japan (3 formations, Jul 2023 – Dec 2025) |
+|---|---|---|
+| F-Score EW vs random | 64–69th pct, p ≈ 0.31–0.36 | 66–70th pct, p ≈ 0.30–0.34 |
+| F-Score + GMV vs random-GMV | **93–94th pct, p ≈ 0.06** | 69th pct, n.s. |
+| F-Score + sector-GMV | **97th pct, p ≈ 0.03** | 71st pct, n.s. |
+| vs market ETF | 17.0% vs 13.9% p.a. (GMV vs SPY) | 26.9% vs 20.0% p.a. (EW vs TOPIX) |
+| FF3 alpha (best variant) | 2.9% p.a., t = 1.83 (GMV) | 7.0% p.a., t = 1.00 (EW) |
+
+Reading: selection alone is positive but not decisive in either market;
+in the US the signal becomes significant once combined with RMT-cleaned
+optimization (the selection-construction synergy the proposal set out to
+test). Japan is directionally consistent but under-powered at three
+formations.
+
 ## Data status
 
 | Market | Prices | Fundamentals | Universe membership | Backtest window |
