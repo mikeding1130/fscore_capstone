@@ -52,40 +52,50 @@ def equal_weight(tickers: list[str]) -> pd.Series:
     return pd.Series(1.0 / len(tickers), index=tickers)
 
 
+def _solve_qp(cov: np.ndarray, n: int, extra_constraints: list) -> np.ndarray:
+    """min w'Σw  s.t.  Σw = 1, w >= 0 (+ extras), via SLSQP."""
+    from scipy.optimize import minimize
+
+    cov = np.asarray(cov)
+    cons = [{"type": "eq", "fun": lambda w: w.sum() - 1.0,
+             "jac": lambda w: np.ones(n)}] + extra_constraints
+    res = minimize(lambda w: w @ cov @ w, np.ones(n) / n,
+                   jac=lambda w: 2 * cov @ w,
+                   bounds=[(0.0, 1.0)] * n, constraints=cons,
+                   method="SLSQP", options={"maxiter": 500, "ftol": 1e-12})
+    w = np.clip(res.x, 0, None)
+    return w / w.sum()
+
+
 def gmv_weights(cov: np.ndarray, tickers: list[str],
                 long_only: bool = True) -> pd.Series:
-    """Global Minimum Variance: min w'Σw s.t. Σw = 1 (long-only via clipping
-    fallback; swap in cvxpy for exact constrained solve).
+    """Global Minimum Variance: min w'Σw s.t. Σw = 1.
 
-    TODO(optimization): replace fallback with cvxpy problem incl. box bounds.
+    Unconstrained GMV has the closed form Σ⁻¹1 / (1'Σ⁻¹1); the long-only
+    variant is solved exactly as a QP (SLSQP with analytic gradients).
     """
     n = len(tickers)
-    try:
-        inv = np.linalg.pinv(cov)
-        ones = np.ones(n)
-        w = inv @ ones / (ones @ inv @ ones)
-    except np.linalg.LinAlgError:
-        w = np.ones(n) / n
+    inv = np.linalg.pinv(cov)
+    ones = np.ones(n)
+    w = inv @ ones / (ones @ inv @ ones)
     if long_only and (w < 0).any():
-        w = np.clip(w, 0, None)
-        w = w / w.sum()
+        w = _solve_qp(cov, n, [])
     return pd.Series(w, index=tickers)
 
 
 def sector_constrained_gmv(cov: np.ndarray, tickers: list[str],
                            sectors: pd.Series, cap: float = 0.20) -> pd.Series:
-    """Sector-capped GMV via iterative projection on the naive solution.
-
-    TODO(optimization): exact cvxpy formulation with per-sector sum caps.
-    """
-    w = gmv_weights(cov, tickers)
-    for _ in range(50):
-        sec_tot = w.groupby(sectors.reindex(w.index)).sum()
-        over = sec_tot[sec_tot > cap]
-        if over.empty:
-            break
-        for sec in over.index:                  # scale down offending sectors
-            mask = sectors.reindex(w.index) == sec
-            w[mask] *= cap / sec_tot[sec]
-        w = w / w.sum()
-    return w
+    """Long-only GMV with each sector's total weight capped at `cap`,
+    solved exactly as a QP with one linear inequality per sector."""
+    n = len(tickers)
+    labels = sectors.reindex(tickers).fillna("Unknown")
+    # feasibility: k sectors need k*cap >= 1, else relax the cap minimally
+    cap = max(cap, 1.0 / labels.nunique() + 1e-6)
+    cons = []
+    for sec in labels.unique():
+        mask = (labels == sec).to_numpy().astype(float)
+        if mask.sum() * (1.0 / n) > 0:  # always constrain; cheap
+            cons.append({"type": "ineq",
+                         "fun": (lambda w, m=mask: cap - m @ w),
+                         "jac": (lambda w, m=mask: -m)})
+    return pd.Series(_solve_qp(np.asarray(cov), n, cons), index=tickers)

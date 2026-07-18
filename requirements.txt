@@ -1,7 +1,12 @@
 numpy>=1.24
 pandas>=2.0
 matplotlib>=3.7
-scipy>=1.10
-cvxpy>=1.4          # exact constrained GMV (TODO hooks in construction/)
-statsmodels>=0.14   # factor regressions (extension)
+scipy>=1.10         # exact long-only / sector-capped GMV (SLSQP)
+statsmodels>=0.14   # Fama-French factor regressions
+requests>=2.31
+yfinance>=0.2.40    # US/Japan prices + fundamentals adapter
+beautifulsoup4>=4.12
+lxml>=5.0           # constituent-list parsing (Wikipedia)
 jupyterlab>=4.0
+nbformat>=5.9
+nbclient>=0.9       # headless notebook execution (scripts/)
