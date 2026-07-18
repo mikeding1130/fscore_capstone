@@ -59,9 +59,11 @@ def pit_snapshot(fundamentals: pd.DataFrame, year: int,
 
 
 def build_universe(prices: pd.DataFrame, snapshot: pd.DataFrame, year: int,
-                   n: int = 150, min_days: int = 200) -> pd.DataFrame:
-    """Eligible universe at formation: continuous listing over the prior year,
-    usable fundamentals, ranked by median daily dollar volume (top `n`).
+                   n: int = 150, min_days: int = 200,
+                   members: set[str] | None = None) -> pd.DataFrame:
+    """Eligible universe at formation: (optional) index membership as of the
+    formation date, continuous listing over the prior year, usable
+    fundamentals, ranked by median daily dollar volume (top `n`).
     Returns fiscal T-1 fundamentals + [adv, bm] for eligible names."""
     fd = formation_date(year)
     est = prices[(prices.date >= fd - pd.DateOffset(years=1)) & (prices.date < fd)]
@@ -82,6 +84,8 @@ def build_universe(prices: pd.DataFrame, snapshot: pd.DataFrame, year: int,
     t = t.dropna(subset=need)
     t = t[t.market_cap > 0]
 
+    if members is not None:
+        t = t[t.ticker.isin(members)]
     uni = t[t.ticker.isin(alive.index)].copy()
     uni["adv"] = uni.ticker.map(alive.adv)
     uni = uni.sort_values("adv", ascending=False).head(n)
@@ -119,12 +123,19 @@ class YearResult:
 
 def run_year(fundamentals, prices, sectors, year, *, k=BASKET_SIZE,
              universe_size=150, value_quantile=0.4, n_mc=1000,
-             n_mc_opt=300, lag_months=5, seed=42) -> YearResult:
+             n_mc_opt=300, lag_months=5, seed=42,
+             membership: dict[int, set[str]] | None = None,
+             end_cap: pd.Timestamp | None = None) -> YearResult:
     fd = formation_date(year)
     hold_end = fd + pd.DateOffset(years=1) - pd.Timedelta(days=1)
+    if end_cap is not None:
+        # evaluation window cap (e.g. the proposal's sample end): the final
+        # formation may contribute a partial holding period
+        hold_end = min(hold_end, pd.Timestamp(end_cap))
 
     snap = pit_snapshot(fundamentals, year, lag_months=lag_months)
-    uni = build_universe(prices, snap, year, n=universe_size)
+    uni = build_universe(prices, snap, year, n=universe_size,
+                         members=membership.get(year) if membership else None)
     value_set = high_bm_subset(uni, quantile=value_quantile)
 
     scored = piotroski_signals(snap, year=year - 1)
@@ -220,8 +231,10 @@ class StudyResult:
         stat = metrics(self.daily[strategy].dropna())
         dist = self.mc_summary(construction)
         rows = {}
+        # max_drawdown is stored as a negative number, so "higher" (less
+        # negative, i.e. shallower) is better — same direction as the others
         for m, hib in [("ann_return", True), ("sharpe", True),
-                       ("max_drawdown", False)]:
+                       ("max_drawdown", True)]:
             rows[m] = vs_random(stat[m], dist[m].tolist(), higher_is_better=hib)
             rows[m]["fscore"] = stat[m]
         return pd.DataFrame(rows).T[["fscore", "random_mean", "random_std",

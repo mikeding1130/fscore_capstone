@@ -24,6 +24,14 @@ def piotroski_signals(fundamentals: pd.DataFrame, year: int) -> pd.DataFrame:
     common = t.index.intersection(tm1.index)
     t, tm1 = t.loc[common], tm1.loc[common]
 
+    # a missing input must exclude the firm, not silently score 0
+    # (NaN comparisons evaluate False): require both years complete
+    needed = ["total_assets", "net_income", "cfo", "long_term_debt",
+              "current_assets", "current_liabilities", "shares_outstanding",
+              "revenue", "cogs"]
+    complete = t[needed].notna().all(axis=1) & tm1[needed].notna().all(axis=1)
+    t, tm1, common = t[complete], tm1[complete], common[complete]
+
     # denominators: average assets, guarding zeros
     avg_assets = (t.total_assets + tm1.total_assets) / 2
     roa_t = t.net_income / avg_assets

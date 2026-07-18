@@ -79,9 +79,16 @@ def factor_regression(daily: pd.Series, factors: pd.DataFrame) -> dict:
 
 def benchmark_returns(bench_prices: pd.DataFrame, ticker: str,
                       start=None, end=None) -> pd.Series:
-    """Daily buy-and-hold returns of one benchmark from the cached long frame."""
+    """Daily buy-and-hold returns of one benchmark from the cached long frame.
+
+    Index ETFs do not move 40% in a day: isolated price points deviating that
+    far from an 11-day rolling median are vendor bad ticks (e.g. Yahoo's
+    1306.T series around a split) and are dropped before differencing.
+    """
     px = (bench_prices[bench_prices.ticker == ticker]
           .set_index("date")["adj_close"].sort_index())
+    med = px.rolling(11, center=True, min_periods=3).median()
+    px = px[(px / med - 1).abs() < 0.4]
     if start is not None:
         px = px.loc[start:]
     if end is not None:

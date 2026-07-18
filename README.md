@@ -61,20 +61,45 @@ jupyter lab notebooks/03_us_full_study.ipynb      # or 04_japan_full_study
 Notebooks `01`/`02` run end-to-end on **clearly-labeled synthetic demo data**
 (no network needed); `03`/`04` run the full study on the cached real data.
 
+## Headline results — developed pair
+
+Full tables and charts live in notebooks `03`/`04` (executed) and `results/`.
+
+| | US (15 formations, Jul 2011 – Dec 2025) | Japan (3 formations, Jul 2023 – Dec 2025) |
+|---|---|---|
+| F-Score EW vs random | 64–69th pct, p ≈ 0.31–0.36 | 66–70th pct, p ≈ 0.30–0.34 |
+| F-Score + GMV vs random-GMV | **93–94th pct, p ≈ 0.06** | 69th pct, n.s. |
+| F-Score + sector-GMV | **97th pct, p ≈ 0.03** | 71st pct, n.s. |
+| vs market ETF | 17.0% vs 13.9% p.a. (GMV vs SPY) | 26.9% vs 20.0% p.a. (EW vs TOPIX) |
+| FF3 alpha (best variant) | 2.9% p.a., t = 1.83 (GMV) | 7.0% p.a., t = 1.00 (EW) |
+
+Reading: selection alone is positive but not decisive in either market;
+in the US the signal becomes significant once combined with RMT-cleaned
+optimization (the selection-construction synergy the proposal set out to
+test). Japan is directionally consistent but under-powered at three
+formations.
+
 ## Data status
 
-| Market | Prices | Fundamentals | Delisted coverage | Backtest window |
+| Market | Prices | Fundamentals | Universe membership | Backtest window |
 |---|---|---|---|---|
-| US | ✅ Yahoo (daily, 2022–) | ✅ Yahoo (5 annual periods) | ❌ pending PIT source | formations 2023–2025 |
-| Japan | ✅ Yahoo (daily, 2022–) | ✅ Yahoo (5 annual periods) | ❌ pending PIT source | formations 2023–2025 |
+| US | ✅ Yahoo (daily, 2008–) | ✅ SEC EDGAR XBRL (FY2009–, true 10-K filing dates) | ✅ historical S&P 500 members per formation date | **formations 2011–2025** (15 years) |
+| Japan | ✅ Yahoo (daily, 2022–) | ✅ Yahoo (5 annual periods) | ⚠️ current Nikkei 225 members | formations 2023–2025 |
 | Malaysia | TODO | TODO | TODO | 2019-12 – 2025-12 (current access) |
 | Vietnam | TODO | TODO | TODO | ~2000–2025 |
 
-**Known limitations of the free developed-pair data** (documented in
-`src/fscore/data/universe.py` / `yahoo.py`): universe membership is *current*
-index constituents (survivorship), statement history is ~5 annual periods
-(so three formation years, not the proposal's 2000–2025), and report dates are
-fiscal period ends with a conservative 5-month reporting lag rather than true
-filing dates. A commercial point-in-time source (the gating item in
-`data/README.md`) plugs into the same canonical schemas without touching any
+**Why the proposal's 2000 start is not fully reachable from free sources.**
+US: EDGAR XBRL begins with the 2009–2011 mandate, so machine-readable
+point-in-time statements start at FY2009 (pre-2009 requires CRSP/Compustat).
+Japan: no free source serves long-history fundamentals at all (J-Quants free
+tier is 2 years; EDINET XBRL starts 2008 and needs the Japanese-GAAP
+taxonomy) — extending Japan needs a licensed source (J-Quants paid tier /
+Refinitiv). Both plug into the same canonical schemas without touching
 downstream code.
+
+**Remaining caveats.** US: membership is point-in-time (historical
+constituents list) and EDGAR keeps filings of delisted firms, but names whose
+price history has vanished from Yahoo still drop out of the tradable
+universe — a residual survivorship tilt. Japan: current-constituent universe,
+~5 statement periods, period-end report dates with a conservative 5-month
+lag (the two gating checks in `data/README.md` remain open for Japan).

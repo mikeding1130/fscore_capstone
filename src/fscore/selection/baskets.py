@@ -65,5 +65,11 @@ def liquidity_matched_basket(universe_df: pd.DataFrame, target: list[str],
     # top up if some buckets ran short
     if len(picks) < k:
         rest = pool[~pool.ticker.isin(picks)]["ticker"].tolist()
-        picks += list(rng.choice(rest, size=k - len(picks), replace=False))
+        take = min(k - len(picks), len(rest))
+        if take:
+            picks += list(rng.choice(rest, size=take, replace=False))
+    if len(picks) < k:
+        # universe smaller than 2k: keep the basket size fixed by accepting
+        # overlap with the target (target names match its liquidity trivially)
+        picks += [t for t in target if t not in picks][:k - len(picks)]
     return picks[:k]

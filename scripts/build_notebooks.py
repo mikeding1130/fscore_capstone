@@ -40,7 +40,21 @@ CFG = {
         "bench": {"SPY (S&P 500)": "SPY", "VTV (US value ETF)": "VTV"},
         "bench_note": "Both benchmarks are USD, like the portfolios.",
         "ff": "us", "usd_convert": False,
-        "universe_note": "current S&P 500 members",
+        "years": "list(range(2011, 2026))", "lag": 1, "membership": True,
+        "data_note": (
+            "SEC EDGAR XBRL fundamentals (FY2009 onward — XBRL was mandated "
+            "2009-2011, which is why the proposal's 2000 start is not reachable "
+            "from free filings) with **true 10-K filing dates** as "
+            "`report_date`, so a 1-month buffer replaces the blanket 5-month "
+            "lag. Universe membership is the S&P 500 list **as of each "
+            "formation date** (historical constituents dataset), removing "
+            "index-inclusion look-ahead; names whose price history has "
+            "vanished from Yahoo (many delistings) still drop out — the "
+            "residual survivorship is documented in the README. Formations "
+            "run **July 2011 .. July 2025**, and the evaluation window is "
+            "capped at **2025-12-31** to stay inside the proposal's "
+            "2000–2025 sample (the final formation contributes a half "
+            "holding year)."),
     },
     "japan": {
         "num": "04", "title": "Japan",
@@ -49,7 +63,24 @@ CFG = {
         "bench_note": ("1306.T is JPY like the portfolios; EWJV is USD, so its "
                        "row mixes in currency effects and is indicative only."),
         "ff": "japan", "usd_convert": True,
-        "universe_note": "current Nikkei 225 members",
+        "years": "[2023, 2024, 2025]", "lag": 3, "membership": False,
+        "data_note": (
+            "Yahoo Finance serves ~5 annual statement periods per name, which "
+            "supports July-1 formations in **2023, 2024 and 2025** only; the "
+            "evaluation window is capped at **2025-12-31** to stay inside the "
+            "proposal's 2000–2025 sample (the final formation contributes a "
+            "half holding year). "
+            "Report dates are fiscal period ends; the reporting lag is 3 "
+            "months — the statutory deadline for the securities report "
+            "(yukashoken hokokusho), so a March fiscal year is public by "
+            "end-June, just before formation. No free source provides 2000-2025 "
+            "Japanese fundamentals (J-Quants free tier is 2 years; EDINET XBRL "
+            "starts 2008 and needs the Japanese-GAAP taxonomy); extending "
+            "Japan to the proposal window requires a licensed source "
+            "(J-Quants paid tier / Refinitiv), which plugs into the same "
+            "canonical schemas. Universe membership is current Nikkei 225 "
+            "members — a survivorship caveat documented in "
+            "`src/fscore/data/universe.py`."),
     },
 }
 
@@ -67,16 +98,15 @@ sector-capped GMV on RMT-cleaned covariances → annual-rebalance backtest →
 placement in the random distribution → investable benchmarks → Fama-French
 three-factor regression.
 
-**Data & scope.** Yahoo Finance serves ~5 annual statement periods per name,
-which under the 5-month reporting lag supports July-1 formations in
-**2023, 2024 and 2025** (three holding years, annually rebalanced). Universe
-membership is {m['universe_note']} — a survivorship caveat documented in
-`src/fscore/data/universe.py`; the proposal's 2000–2025 sample needs the
-commercial point-in-time source listed as the gating item in `data/README.md`
-and plugs into the same canonical schemas.
+**Data & scope.** {m['data_note']}
 
-Run `python scripts/fetch_us_japan.py` once before this notebook (builds the
-git-ignored cache under `data/`)."""))
+Run `python scripts/{'fetch_us_edgar.py' if m['membership'] else 'fetch_us_japan.py'}`
+once before this notebook (builds the git-ignored cache under `data/`)."""))
+
+    membership_load = ("""
+from fscore.data.edgar import load_membership
+membership = load_membership(ROOT / "data")""" if m["membership"] else """
+membership = None""")
 
     cells.append(code(f"""import sys, pathlib
 ROOT = pathlib.Path.cwd().parent
@@ -88,8 +118,11 @@ from fscore.pipeline import run_study
 from fscore.evaluation import (metrics, benchmark_returns, fetch_ff_factors,
                                factor_regression, to_usd)
 
-MARKET, YEARS = "{m['num'] == '03' and 'us' or 'japan'}", [2023, 2024, 2025]
-fund, prices, sectors, bench = load_cached(MARKET, ROOT / "data")
+MARKET = "{'us' if m['membership'] else 'japan'}"
+YEARS = {m['years']}
+LAG_MONTHS = {m['lag']}  # {'report_date = true 10-K filing date' if m['lag'] == 1 else 'report_date = fiscal period end (no filing dates on Yahoo)'}
+END_CAP = pd.Timestamp("2025-12-31")  # proposal sample ends in 2025
+fund, prices, sectors, bench = load_cached(MARKET, ROOT / "data"){membership_load}
 print(f"fundamentals: {{fund.ticker.nunique()}} tickers, "
       f"FY{{fund.fiscal_year.min()}}–FY{{fund.fiscal_year.max()}}")
 print(f"prices: {{prices.ticker.nunique()}} tickers, "
@@ -104,19 +137,24 @@ by B/M (~60 names); baskets of 30; 1,000 random baskets under EW (300 pushed
 through the GMV / sector-GMV pipeline)."""))
 
     cells.append(code("""study = run_study(MARKET, fund, prices, sectors, YEARS,
-                  n_mc=1000, n_mc_opt=300, seed=42)
+                  n_mc=1000, n_mc_opt=300, lag_months=LAG_MONTHS,
+                  membership=membership, end_cap=END_CAP, seed=42)
 diag = pd.DataFrame([{"year": yr.year, **yr.diagnostics} for yr in study.yearly])
 diag.set_index("year")"""))
 
     cells.append(md("### 2. F-Score distribution within the value universe, per formation"))
 
-    cells.append(code("""fig, axes = plt.subplots(1, len(YEARS), figsize=(11, 3), sharey=True)
-for ax, yr in zip(axes, study.yearly):
+    cells.append(code("""ncol = min(5, len(YEARS))
+nrow = -(-len(YEARS) // ncol)
+fig, axes = plt.subplots(nrow, ncol, figsize=(2.3 * ncol, 2.5 * nrow),
+                         sharey=True, squeeze=False)
+for ax, yr in zip(axes.flat, study.yearly):
     counts = yr.scored.fscore.value_counts().sort_index()
     ax.bar(counts.index, counts.values)
-    ax.set_title(f"{yr.year} formation"); ax.set_xlabel("F-Score"); ax.set_xticks(range(10))
-axes[0].set_ylabel("firms")
-fig.suptitle(f"{MARKET.upper()} — F-Score distribution (high-B/M universe)")
+    ax.set_title(f"{yr.year}", fontsize=9); ax.set_xticks(range(0, 10, 3))
+for ax in axes.flat[len(study.yearly):]:
+    ax.axis("off")
+fig.suptitle(f"{MARKET.upper()} — F-Score distribution within the high-B/M universe, by formation year")
 plt.tight_layout(); plt.show()
 
 pd.DataFrame({yr.year: yr.scored.fscore.describe() for yr in study.yearly}).round(2)"""))
@@ -164,7 +202,7 @@ for ax, (how, strat) in zip(axes, pairs):
     ax.hist(sharpes, bins=30, alpha=0.75)
     ax.axvline(fs, color="crimson", lw=2)
     ax.set_title(f"{how}: F-Score={fs:.2f}", fontsize=10)
-    ax.set_xlabel("Sharpe (chained 3y)")
+    ax.set_xlabel(f"Sharpe (chained {len(YEARS)}y)")
 axes[0].set_ylabel("random baskets")
 fig.suptitle(f"{MARKET.upper()} — F-Score basket vs random distribution, by construction")
 plt.tight_layout(); plt.show()
