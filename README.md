@@ -13,7 +13,7 @@ computed **within the high book-to-market (value) universe** only.
 ## Pipeline
 
 ```
-universe (point-in-time, survivorship-safe, ~100 names)
+universe (point-in-time, survivorship-safe, ~100-150 names)
    └─> high-B/M value subset                      src/fscore/data/
          └─> 9-signal F-Score (0–9)               src/fscore/signal/
                └─> SELECTION @ fixed basket       src/fscore/selection/
@@ -22,42 +22,59 @@ universe (point-in-time, survivorship-safe, ~100 names)
                          EW | GMV | sector-GMV  (+ RMT denoise/detone)
                            └─> BACKTEST + METRICS  src/fscore/evaluation/
                                vs random distribution (percentile, p-value)
+                               vs investable benchmarks + FF3 regression
 ```
 
 Selection and construction are deliberately **decoupled**: all selection
 methods are first compared under equal weighting (isolating stock-picking),
 then optimization is layered on the same baskets (isolating construction).
+The multi-year loop (annual July-1 formations, chained holding years) lives in
+`src/fscore/pipeline.py`.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `src/fscore/data/` | loaders, point-in-time alignment, universe construction, high-B/M subset |
+| `src/fscore/data/` | loaders, point-in-time alignment, high-B/M subset; `universe.py` (S&P 500 / Nikkei 225 constituents + sectors), `yahoo.py` (real-data adapter + cache) |
 | `src/fscore/signal/` | the nine Piotroski signals and composite score |
 | `src/fscore/selection/` | fixed-size baskets: F-Score top-k, Monte-Carlo random, liquidity-matched, value, market-cap |
-| `src/fscore/construction/` | EW / GMV / sector-constrained GMV weights; RMT covariance cleaning |
-| `src/fscore/evaluation/` | annual-rebalance backtest, performance metrics, random-distribution comparison |
-| `notebooks/` | `01_us_fscore_single_year` and `02_japan_fscore_single_year` — runnable demos |
-| `data/` | git-ignored; see `data/README.md` for expected file schemas |
-| `tests/` | smoke tests for the signal layer |
+| `src/fscore/construction/` | EW / long-only GMV / sector-capped GMV (exact SLSQP solve); RMT covariance cleaning |
+| `src/fscore/evaluation/` | backtest metrics, random-distribution placement; `benchmarks.py` (investable ETFs, Fama-French 3-factor regression) |
+| `src/fscore/pipeline.py` | full multi-year study runner (PIT snapshot → universe → score → baskets → weights → chained backtest) |
+| `scripts/` | `fetch_us_japan.py` (build the data cache), `build_notebooks.py` |
+| `notebooks/` | `01`/`02` single-year synthetic demos (US, Japan); `03`/`04` **full real-data studies** (US, Japan) |
+| `data/` | git-ignored cache; see `data/README.md` for schemas and gating checks |
+| `results/` | CSV outputs of the full studies (summary, MC placement, turnover, factor regressions) |
+| `tests/` | signal smoke test + construction/PIT unit tests |
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
-jupyter lab notebooks/01_us_fscore_single_year.ipynb
+python tests/test_signals.py && python tests/test_pipeline.py
+
+# developed pair, real data (one-shot download, ~30 min):
+python scripts/fetch_us_japan.py
+jupyter lab notebooks/03_us_full_study.ipynb      # or 04_japan_full_study
 ```
 
-Both notebooks run end-to-end on **clearly-labeled synthetic demo data** so the
-pipeline is testable before real data lands; swap in real fundamentals/prices
-via the loaders in `src/fscore/data/loaders.py` (interfaces documented there).
+Notebooks `01`/`02` run end-to-end on **clearly-labeled synthetic demo data**
+(no network needed); `03`/`04` run the full study on the cached real data.
 
-## Data status (gating item)
+## Data status
 
-| Market | Prices | Fundamentals | Delisted coverage | Window |
+| Market | Prices | Fundamentals | Delisted coverage | Backtest window |
 |---|---|---|---|---|
-| US | TODO | TODO | TODO | ~2000–2025 |
-| Japan | TODO | TODO | TODO | ~2000–2025 |
+| US | ✅ Yahoo (daily, 2022–) | ✅ Yahoo (5 annual periods) | ❌ pending PIT source | formations 2023–2025 |
+| Japan | ✅ Yahoo (daily, 2022–) | ✅ Yahoo (5 annual periods) | ❌ pending PIT source | formations 2023–2025 |
 | Malaysia | TODO | TODO | TODO | 2019-12 – 2025-12 (current access) |
 | Vietnam | TODO | TODO | TODO | ~2000–2025 |
 
+**Known limitations of the free developed-pair data** (documented in
+`src/fscore/data/universe.py` / `yahoo.py`): universe membership is *current*
+index constituents (survivorship), statement history is ~5 annual periods
+(so three formation years, not the proposal's 2000–2025), and report dates are
+fiscal period ends with a conservative 5-month reporting lag rather than true
+filing dates. A commercial point-in-time source (the gating item in
+`data/README.md`) plugs into the same canonical schemas without touching any
+downstream code.

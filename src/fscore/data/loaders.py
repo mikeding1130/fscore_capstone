@@ -26,20 +26,30 @@ REQUIRED_FUND_COLS = [
 ]
 
 
+IMPLEMENTED_MARKETS = ("us", "japan")
+
+
 def load_fundamentals(market: str, path: str | None = None) -> pd.DataFrame:
     """Load annual fundamentals for a market into the canonical schema.
 
-    TODO(data-team): implement per-market adapters.
-      - US:      e.g. Compustat/WRDS export, or SEC-derived set
-      - Japan:   e.g. J-Quants / Refinitiv export
+    US and Japan are served from the Yahoo Finance cache written by
+    `scripts/fetch_us_japan.py` (see fscore.data.yahoo for source caveats).
+
+    TODO(data-team): adapters for the emerging pair.
       - Malaysia: source under evaluation (window 2019-12..2025-12)
       - Vietnam: adapter over the team-maintained normalized database
     """
+    if market.lower() in IMPLEMENTED_MARKETS:
+        from .yahoo import load_cached
+        return load_cached(market, path or "data")[0]
     raise NotImplementedError(f"fundamentals adapter for {market!r} not wired yet")
 
 
 def load_prices(market: str, path: str | None = None) -> pd.DataFrame:
-    """Load adjusted daily prices into the canonical schema. TODO: as above."""
+    """Load adjusted daily prices into the canonical schema."""
+    if market.lower() in IMPLEMENTED_MARKETS:
+        from .yahoo import load_cached
+        return load_cached(market, path or "data")[1]
     raise NotImplementedError(f"price adapter for {market!r} not wired yet")
 
 
