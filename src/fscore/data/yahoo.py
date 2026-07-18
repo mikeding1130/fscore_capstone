@@ -107,21 +107,32 @@ def fetch_fundamentals(tickers: list[str], pause: float = 0.25,
 
 def fetch_prices(tickers: list[str], start: str = PRICE_START,
                  end: str | None = None, chunk: int = 80) -> pd.DataFrame:
-    """Adjusted daily closes + volume, long canonical form."""
+    """Daily prices in long canonical form.
+
+    Keeps both the dividend/split-adjusted close (`adj_close`, for returns)
+    and the raw close (`close_raw`): market cap must be raw close x
+    as-reported shares — adjusted prices are rescaled by later splits while
+    filed share counts are not.
+    """
     frames: list[pd.DataFrame] = []
     for i in range(0, len(tickers), chunk):
         part = tickers[i:i + chunk]
-        raw = yf.download(part, start=start, end=end, auto_adjust=True,
+        raw = yf.download(part, start=start, end=end, auto_adjust=False,
                           progress=False, group_by="column", threads=True)
         if raw.empty:
             continue
-        close = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]].rename(columns={"Close": part[0]})
-        vol = raw["Volume"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Volume"]].rename(columns={"Volume": part[0]})
-        long_px = close.rename_axis("date").reset_index().melt(
-            id_vars="date", var_name="ticker", value_name="adj_close")
-        long_vol = vol.rename_axis("date").reset_index().melt(
-            id_vars="date", var_name="ticker", value_name="volume")
-        frames.append(long_px.merge(long_vol, on=["date", "ticker"], how="left"))
+        if not isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = pd.MultiIndex.from_product([raw.columns, part])
+
+        def melt(field, name):
+            return (raw[field].rename_axis("date").reset_index()
+                    .melt(id_vars="date", var_name="ticker", value_name=name))
+
+        adj = melt("Adj Close", "adj_close")
+        cls = melt("Close", "close_raw")
+        vol = melt("Volume", "volume")
+        frames.append(adj.merge(cls, on=["date", "ticker"], how="left")
+                         .merge(vol, on=["date", "ticker"], how="left"))
         time.sleep(0.5)
     px = pd.concat(frames, ignore_index=True).dropna(subset=["adj_close"])
     px["date"] = pd.to_datetime(px["date"]).dt.tz_localize(None)
@@ -129,18 +140,26 @@ def fetch_prices(tickers: list[str], start: str = PRICE_START,
 
 
 def attach_market_cap(fundamentals: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
-    """market_cap = shares_outstanding x adj_close as of the fiscal period end
+    """market_cap = shares_outstanding x close as of the fiscal period end
     (last trading day on or before report_date) — Piotroski's fiscal-year-end
-    market value, used for the B/M sort."""
+    market value, used for the B/M sort.
+
+    Uses the RAW close when available: as-reported share counts pair with
+    unadjusted prices (adjusted prices are rescaled by later splits)."""
+    price_col = "close_raw" if "close_raw" in prices.columns else "adj_close"
     f = fundamentals.copy()
-    f["report_date"] = pd.to_datetime(f["report_date"])
-    px = prices.sort_values("date")
+    # normalize both keys to ns resolution (pandas 3 merge_asof requires
+    # identical datetime units)
+    f["report_date"] = pd.to_datetime(f["report_date"]).astype("datetime64[ns]")
+    px = prices.copy()
+    px["date"] = pd.to_datetime(px["date"]).astype("datetime64[ns]")
+    px = px.sort_values("date")
     merged = pd.merge_asof(
-        f.sort_values("report_date"), px[["ticker", "date", "adj_close"]],
+        f.sort_values("report_date"), px[["ticker", "date", price_col]],
         left_on="report_date", right_on="date", by="ticker",
         direction="backward", tolerance=pd.Timedelta(days=14))
-    merged["market_cap"] = merged["shares_outstanding"] * merged["adj_close"]
-    return (merged.drop(columns=["date", "adj_close"])
+    merged["market_cap"] = merged["shares_outstanding"] * merged[price_col]
+    return (merged.drop(columns=["date", price_col])
                   .sort_values(["ticker", "fiscal_year"]).reset_index(drop=True))
 
 
