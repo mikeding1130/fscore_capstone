@@ -8,4 +8,5 @@ data/processed/
 *.csv.gz
 !data/README.md
 !results/*.csv
+!results/grid/*.csv
 .env

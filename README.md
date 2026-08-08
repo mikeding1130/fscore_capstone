@@ -61,6 +61,26 @@ jupyter lab notebooks/03_us_full_study.ipynb      # or 04_japan_full_study
 Notebooks `01`/`02` run end-to-end on **clearly-labeled synthetic demo data**
 (no network needed); `03`/`04` run the full study on the cached real data.
 
+## Peer-review grid study (notebooks/grid/)
+
+Following the M5 peer review, `src/fscore/grid.py` re-runs the developed pair
+on the team-computed F-Score workbooks (`data/processed/*_Fscores_nonfinancial.xlsx`,
+exact Piotroski conventions, financial firms removed) across the reviewer's
+grid — basket size k ∈ {20, 25, 30} × random draws N ∈ {1000, 2000, 5000} ×
+{US, Japan} = **18 executed notebooks**, figures saved at dpi = 300.
+Design answers the review's four priorities: explicit random basis (full
+eligible universe, fresh yearly draws, overlap reported), the **direct synergy
+test** D = Sharpe(GMV) − Sharpe(EW) per basket, a strict F ≥ 8 portfolio, and
+one pre-registered primary measure (net-of-cost Sharpe). Aggregated outputs
+in `results/grid/`; build/execute via `python scripts/build_grid_notebooks.py execute`.
+
+Headline: percentiles are insensitive to N (1,000 draws suffice); US shows the
+selection screen at/below the random median but a positive optimisation-gain
+interaction (D = +0.12 ~ +0.14 vs random mean ≈ −0.2, p ≈ 0.06–0.08 for
+k ≤ 25); Japan shows the opposite — strong selection (90th pct at k = 25)
+with GMV systematically hurting the F-Score basket. Synergy is conditional,
+not universal.
+
 ## Headline results — developed pair
 
 Full tables and charts live in notebooks `03`/`04` (executed) and `results/`.
