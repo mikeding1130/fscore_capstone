@@ -15,8 +15,10 @@ GRID_DIR = ROOT / "notebooks" / "grid"
 
 KS = [20, 25, 30]
 MCS = [1000, 2000, 5000]
-MARKETS = {"us": ("United States", "list(range(2021, 2026))"),
-           "japan": ("Japan", "list(range(2022, 2026))")}
+# First scoreable workbook year is 2002 (the panel needs t-1/t-2 history),
+# so the earliest possible formation is 2003 in both markets.
+MARKETS = {"us": ("United States", "list(range(2003, 2026))"),
+           "japan": ("Japan", "list(range(2003, 2026))")}
 
 
 def cells(market: str, k: int, n_mc: int):
@@ -30,8 +32,14 @@ One cell of the reviewer-suggested 3 x 3 x 2 grid (basket sizes 20/25/30 x
 random-sample sizes 1,000/2,000/5,000 x two markets). Signals come from the
 team-computed workbook (`data/processed/`, exact Piotroski conventions,
 financial firms removed); prices from the cached Yahoo data. Formations are
-July 1 using score year T-1 (one conservative timing rule for both markets);
-the evaluation window ends 2025-12-31.
+July 1 of **2003-2025** (23 chained holding years) using score year T-1 —
+one conservative timing rule for both markets; the first scoreable workbook
+year is 2002 (the 2000/2001 sheets have no scoreable firms since the panel
+needs t-1 and t-2 history), so 2000-2002 formations cannot exist. The
+evaluation window ends 2025-12-31. Note the panel resolves to *currently
+listed* Yahoo symbols, so the early-2000s universe is survivorship-tilted —
+disclosed as a data limitation. The value control falls back to the universe
+in years before B/M coverage begins (flagged in the diagnostics).
 
 Peer-review design points (see `src/fscore/grid.py` docstring): explicit
 random basis = full eligible universe with fresh draws each year and reported

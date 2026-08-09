@@ -71,15 +71,20 @@ grid — basket size k ∈ {20, 25, 30} × random draws N ∈ {1000, 2000, 5000}
 Design answers the review's four priorities: explicit random basis (full
 eligible universe, fresh yearly draws, overlap reported), the **direct synergy
 test** D = Sharpe(GMV) − Sharpe(EW) per basket, a strict F ≥ 8 portfolio, and
-one pre-registered primary measure (net-of-cost Sharpe). Aggregated outputs
-in `results/grid/`; build/execute via `python scripts/build_grid_notebooks.py execute`.
+one pre-registered primary measure (net-of-cost Sharpe). Formations run
+**July 2003 – July 2025** (23 chained holding years; the workbooks' first
+scoreable year is 2002, so 2000–2002 formations cannot exist). Aggregated
+outputs in `results/grid/`; build/execute via
+`python scripts/build_grid_notebooks.py execute`.
 
-Headline: percentiles are insensitive to N (1,000 draws suffice); US shows the
-selection screen at/below the random median but a positive optimisation-gain
-interaction (D = +0.12 ~ +0.14 vs random mean ≈ −0.2, p ≈ 0.06–0.08 for
-k ≤ 25); Japan shows the opposite — strong selection (90th pct at k = 25)
-with GMV systematically hurting the F-Score basket. Synergy is conditional,
-not universal.
+Headline (full window): percentiles are insensitive to N (1,000 draws
+suffice). On this survivor-tilted blue-chip panel the screen alone does not
+beat same-universe random selection (US ≈ 16th pct at k = 25; Japan ≈ 80th
+pct, n.s.), and the optimisation gain D is statistically indistinguishable
+from the random-basket distribution in both markets. This contrasts with the
+high-B/M PIT design (main study: 93–97th pct under GMV) and the 2021–2025
+sub-window (US D ≈ +0.12, p ≈ 0.06) — the selection × construction synergy
+is **conditional** on universe design and estimation window, not universal.
 
 ## Headline results — developed pair
 

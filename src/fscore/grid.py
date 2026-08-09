@@ -86,11 +86,15 @@ def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed):
     est, hold = est[usable], hold[usable]
 
     s = s.sort_values(["fscore", "bm"], ascending=False, na_position="last")
+    value_pool = s.dropna(subset=["bm"]).sort_values("bm", ascending=False)
+    # B/M coverage starts only when the fundamentals cache does (US FY2009+,
+    # Japan FY2021+): earlier years fall back to the universe and are flagged
+    value_fallback = len(value_pool) < max(5, k // 4)
     baskets = {
         "fscore": s.head(k).ticker.tolist(),
         "fscore_high": s[s.fscore >= 8].ticker.tolist(),
-        "value": s.dropna(subset=["bm"]).sort_values("bm", ascending=False)
-                  .head(k).ticker.tolist(),
+        "value": (list(usable) if value_fallback
+                  else value_pool.head(k).ticker.tolist()),
         "universe": list(usable),
     }
 
@@ -154,6 +158,8 @@ def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed):
     diag = {
         "universe": len(usable), "dropped_no_price": dropped_no_price,
         "bm_coverage": int(s.bm.notna().sum()), "k": k,
+        "value_fallback": value_fallback,
+        "value_basket_size": len(baskets["value"]),
         "n_fscore_high": len(baskets["fscore_high"]),
         "fscore_mean": float(s.fscore.mean()),
         "fscore_basket_min": float(s.head(k).fscore.min()),
