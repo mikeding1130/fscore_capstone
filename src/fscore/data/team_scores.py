@@ -33,7 +33,7 @@ SIGNAL_COLS = ["F_ROA", "F_CFO", "F_DROA", "F_ACCRUAL", "F_DLEVER",
 
 
 def load_team_scores(market: str, data_dir: str | Path = "data",
-                     years: range = range(2019, 2026),
+                     years: range = range(2002, 2026),
                      refresh: bool = False) -> pd.DataFrame:
     """Tidy frame: one row per (score_year, ticker) with fscore, signals,
     sector, shares, and B/M joined from the market's fundamentals cache.
