@@ -1,0 +1,6 @@
+.idea
+.claude
+.venv
+__pycache__/
+logs/
+tcbs*
