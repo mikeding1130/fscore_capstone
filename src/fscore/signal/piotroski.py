@@ -3,6 +3,16 @@
 Input: canonical `fundamentals` frame containing the scoring year (t) and the
 prior year (t-1) for each ticker. Output: one row per ticker with the nine
 0/1 signals and `fscore` (0..9).
+
+EQ_OFFER (`no_issuance`) is measured from the **cash-flow statement's
+equity-issuance line** (`equity_issued` — proceeds from issuing common /
+preferred stock, the analogue of Piotroski's Compustat SSTK), not from the
+year-on-year share count. Share counts move for reasons that are not equity
+offerings — buybacks net against issuance, splits and stock dividends change
+the count without raising capital, and employee-plan vesting drifts it up —
+so the share-count test both misses real offerings and flags non-offerings.
+It remains as a fallback only where the cash-flow line is absent, and the
+split between the two is reported in `.attrs`.
 """
 from __future__ import annotations
 
@@ -25,12 +35,22 @@ def piotroski_signals(fundamentals: pd.DataFrame, year: int) -> pd.DataFrame:
     t, tm1 = t.loc[common], tm1.loc[common]
 
     # a missing input must exclude the firm, not silently score 0
-    # (NaN comparisons evaluate False): require both years complete
+    # (NaN comparisons evaluate False): require both years complete, so every
+    # score reported is a full nine-signal score. The count of firms dropped
+    # this way is attached as `.attrs["dropped_incomplete"]` for the write-up.
     needed = ["total_assets", "net_income", "cfo", "long_term_debt",
               "current_assets", "current_liabilities", "shares_outstanding",
               "revenue", "cogs"]
     complete = t[needed].notna().all(axis=1) & tm1[needed].notna().all(axis=1)
+    n_dropped = int((~complete).sum())
     t, tm1, common = t[complete], tm1[complete], common[complete]
+
+    # EQ_OFFER source: the cash-flow statement's equity-issuance line is the
+    # primary measure (Piotroski's Compustat SSTK analogue). The share-count
+    # comparison is only a fallback where that line is unavailable, and how
+    # often it was used is reported rather than hidden.
+    has_cf_issue = (t["equity_issued"].notna() if "equity_issued" in t.columns
+                    else pd.Series(False, index=t.index))
 
     # denominators: average assets, guarding zeros
     avg_assets = (t.total_assets + tm1.total_assets) / 2
@@ -50,7 +70,16 @@ def piotroski_signals(fundamentals: pd.DataFrame, year: int) -> pd.DataFrame:
     curr_t = t.current_assets / t.current_liabilities
     curr_tm1 = tm1.current_assets / tm1.current_liabilities
     out["delta_liquidity_up"] = (curr_t > curr_tm1).astype(int)
-    out["no_issuance"] = (t.shares_outstanding <= tm1.shares_outstanding).astype(int)
+    # no common equity issued during the year: cash raised from issuing
+    # equity is zero (a tiny positive figure is employee-plan noise, so the
+    # test is <= 0 on the reported proceeds, matching Piotroski's "did not
+    # issue common equity" condition)
+    by_shares = (t.shares_outstanding <= tm1.shares_outstanding).astype(int)
+    if has_cf_issue.any():
+        by_cash = (t["equity_issued"].fillna(0) <= 0).astype(int)
+        out["no_issuance"] = by_cash.where(has_cf_issue, by_shares)
+    else:
+        out["no_issuance"] = by_shares
     # -- operating efficiency
     gm_t = (t.revenue - t.cogs) / t.revenue
     gm_tm1 = (tm1.revenue - tm1.cogs) / tm1.revenue
@@ -60,4 +89,9 @@ def piotroski_signals(fundamentals: pd.DataFrame, year: int) -> pd.DataFrame:
     out["delta_turnover_up"] = (turn_t > turn_tm1).astype(int)
 
     out["fscore"] = out[SIGNALS].sum(axis=1)
-    return out.reset_index().rename(columns={"index": "ticker"})
+    out = out.reset_index().rename(columns={"index": "ticker"})
+    out.attrs["dropped_incomplete"] = n_dropped
+    out.attrs["scored"] = len(out)
+    out.attrs["eq_offer_from_cashflow"] = int(has_cf_issue.sum())
+    out.attrs["eq_offer_from_shares"] = int((~has_cf_issue).sum())
+    return out

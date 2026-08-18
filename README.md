@@ -4,8 +4,8 @@ MScFE Capstone — Quantitative Fundamentals (Topic 1)
 **Team:** Zu Yao Teoh · Zhicheng Ding · Ta Tan Phat
 
 We test whether the Piotroski F-Score is a practical stock-selection methodology
-across two matched market pairs — **US & Japan (developed)** vs **Malaysia &
-Vietnam (emerging)** — and whether quantitative portfolio construction
+across three markets — **US & Japan (developed)** vs **Vietnam (emerging)** —
+and whether quantitative portfolio construction
 (Equal-Weight, GMV, sector-constrained GMV, with RMT covariance cleaning)
 improves the resulting portfolios. Following Piotroski (2000), the F-Score is
 computed **within the high book-to-market (value) universe** only.
@@ -71,7 +71,9 @@ grid — basket size k ∈ {20, 25, 30} × random draws N ∈ {1000, 2000, 5000}
 Design answers the review's four priorities: explicit random basis (full
 eligible universe, fresh yearly draws, overlap reported), the **direct synergy
 test** D = Sharpe(GMV) − Sharpe(EW) per basket, a strict F ≥ 8 portfolio, and
-one pre-registered primary measure (net-of-cost Sharpe). Formations run
+one pre-registered primary measure (net-of-cost Sharpe) tested at one
+pre-registered significance level (**5%**, `fscore.evaluation.ALPHA`).
+Formations run
 **July 2003 – July 2025** (23 chained holding years; the workbooks' first
 scoreable year is 2002, so 2000–2002 formations cannot exist). Aggregated
 outputs in `results/grid/`; build/execute via
@@ -90,19 +92,22 @@ is **conditional** on universe design and estimation window, not universal.
 
 Full tables and charts live in notebooks `03`/`04` (executed) and `results/`.
 
+All verdicts below are at the single pre-registered level, **α = 5%**.
+
 | | US (15 formations, Jul 2011 – Dec 2025) | Japan (3 formations, Jul 2023 – Dec 2025) |
 |---|---|---|
-| F-Score EW vs random | 64–69th pct, p ≈ 0.31–0.36 | 66–70th pct, p ≈ 0.30–0.34 |
-| F-Score + GMV vs random-GMV | **93–94th pct, p ≈ 0.06** | 69th pct, n.s. |
-| F-Score + sector-GMV | **97th pct, p ≈ 0.03** | 71st pct, n.s. |
+| F-Score EW vs random | 64–69th pct, p ≈ 0.31–0.36 — n.s. | 66–70th pct, p ≈ 0.30–0.34 — n.s. |
+| F-Score + GMV vs random-GMV | 93–94th pct, p ≈ 0.06 — **n.s.** | 69th pct — n.s. |
+| F-Score + sector-GMV | 97th pct, p ≈ 0.03 — **significant** | 71st pct — n.s. |
 | vs market ETF | 17.0% vs 13.9% p.a. (GMV vs SPY) | 26.9% vs 20.0% p.a. (EW vs TOPIX) |
-| FF3 alpha (best variant) | 2.9% p.a., t = 1.83 (GMV) | 7.0% p.a., t = 1.00 (EW) |
+| FF3 alpha (best variant) | 2.9% p.a., t = 1.83, p ≈ 0.07 — n.s. | 7.0% p.a., t = 1.00 — n.s. |
 
-Reading: selection alone is positive but not decisive in either market;
-in the US the signal becomes significant once combined with RMT-cleaned
-optimization (the selection-construction synergy the proposal set out to
-test). Japan is directionally consistent but under-powered at three
-formations.
+Reading: selection alone is not significant in either market. Only one test
+in the whole developed pair clears 5% — the sector-capped GMV placement in
+the US (p ≈ 0.03) — and it sits alongside a GMV placement that does not
+(p ≈ 0.06), so it is a single result, not a pattern. Note also that these
+figures predate two corrections (RMT detoning switched off, per-strategy
+trading costs); notebooks 03/04 need a re-run to refresh them.
 
 ## Data status
 
@@ -110,8 +115,7 @@ formations.
 |---|---|---|---|---|
 | US | ✅ Yahoo (daily, 2008–) | ✅ SEC EDGAR XBRL (FY2009–, true 10-K filing dates) | ✅ historical S&P 500 members per formation date | **formations 2011–2025** (15 years) |
 | Japan | ✅ Yahoo (daily, 2022–) | ✅ Yahoo (5 annual periods) | ⚠️ current Nikkei 225 members | formations 2023–2025 |
-| Malaysia | TODO | TODO | TODO | 2019-12 – 2025-12 (current access) |
-| Vietnam | TODO | TODO | TODO | ~2000–2025 |
+| Vietnam | TODO | TODO | TODO | team-maintained database, 10y |
 
 **Why the proposal's 2000 start is not fully reachable from free sources.**
 US: EDGAR XBRL begins with the 2009–2011 mandate, so machine-readable

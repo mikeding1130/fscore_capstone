@@ -40,9 +40,26 @@ def test_sector_caps_hold():
 def test_rmt_cov_is_symmetric_psd_shaped():
     rng = np.random.default_rng(1)
     rets = pd.DataFrame(rng.normal(0, 0.02, (260, 15)))
-    cov = clean_rmt(rets, detone=True)
-    assert cov.shape == (15, 15)
-    assert np.allclose(cov, cov.T, atol=1e-10)
+    for detone in (False, True):
+        cov = clean_rmt(rets, detone=detone)
+        assert cov.shape == (15, 15)
+        assert np.allclose(cov, cov.T, atol=1e-10)
+
+
+def test_detone_makes_cov_singular_so_default_is_off():
+    """Guards the reason detoning is off by default: removing the market mode
+    leaves a singular matrix, which a minimum-variance solve must not invert."""
+    import inspect
+
+    rng = np.random.default_rng(2)
+    market = rng.normal(0, 0.01, (400, 1))
+    rets = pd.DataFrame(market + rng.normal(0, 0.015, (400, 20)))
+
+    kept = np.linalg.eigvalsh(clean_rmt(rets, detone=False))
+    dropped = np.linalg.eigvalsh(clean_rmt(rets, detone=True))
+    assert kept.min() > 1e-9                       # invertible
+    assert dropped.min() < kept.min() * 1e-3       # market mode removed -> singular
+    assert inspect.signature(clean_rmt).parameters["detone"].default is False
 
 
 def test_pit_snapshot_excludes_unpublished_year():
@@ -61,10 +78,157 @@ def test_pit_snapshot_excludes_unpublished_year():
     assert formation_date(2025) == pd.Timestamp("2025-07-01")
 
 
+def test_costs_are_charged_per_strategy_not_uniformly():
+    """A static control must not be charged the F-Score basket's turnover."""
+    from types import SimpleNamespace
+    from fscore.grid import GridStudy, COST_PER_SIDE
+
+    def yr(fs_names, static_names):
+        w = {"fscore_EW": pd.Series(1 / 3, index=fs_names),
+             "universe_EW": pd.Series(1 / 3, index=static_names)}
+        return SimpleNamespace(weights=w, mc_names=[frozenset(fs_names)])
+
+    st = GridStudy("t", 3, 10, [1, 2], [yr(["A", "B", "C"], ["X", "Y", "Z"]),
+                                        yr(["A", "B", "D"], ["X", "Y", "Z"])],
+                   pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+
+    assert st.strategy_turnover("fscore_EW") == pytest_approx(1 / 3)
+    assert st.strategy_turnover("universe_EW") == 0.0          # never traded
+    assert st.cost_drag("fscore_EW") == pytest_approx(2 / 3 * COST_PER_SIDE)
+    assert st.cost_drag("universe_EW") == 0.0
+    assert st.mc_turnover() == pytest_approx(1 / 3)            # control's own
+
+
+def pytest_approx(x, tol=1e-9):
+    class _A:
+        def __eq__(self, other):
+            return abs(other - x) < tol
+    return _A()
+
+
 def test_vs_random_percentile():
     out = vs_random(2.0, [1.0] * 90 + [3.0] * 10)
     assert out["percentile"] == 0.9
     assert out["p_value"] == 0.1
+
+
+def _price_frame(series: dict, dates):
+    rows = [{"ticker": tk, "date": d, "adj_close": float(v)}
+            for tk, vals in series.items()
+            for d, v in zip(dates, vals) if v is not None]
+    return pd.DataFrame(rows)
+
+
+def test_delisted_names_are_carried_at_last_traded_price():
+    """A position that stops trading keeps its last quote (0 return after),
+    instead of dropping out and re-weighting the book onto survivors."""
+    from fscore.evaluation import returns_panel
+
+    dates = pd.bdate_range("2024-01-01", periods=6)
+    px = _price_frame({"ALIVE": [100, 101, 102, 103, 104, 105],
+                       "DELIST": [100, 90, 80, None, None, None]}, dates)
+    r = returns_panel(px, ["ALIVE", "DELIST"], dates[0], dates[-1])
+    cum = (1 + r.fillna(0)).prod() - 1
+
+    assert abs(cum["DELIST"] - (-0.20)) < 1e-9    # frozen at the last price
+    assert (r["DELIST"].iloc[2:].fillna(0) == 0).all()
+    assert r.attrs["delisted"] == 1
+
+
+def test_delisting_return_can_discount_the_last_price():
+    """The carry-forward assumes full recovery at the last quote; the
+    parameter exists to test that assumption (e.g. -30%).
+
+    The frame keeps a surviving name so the trading calendar extends past the
+    delisting — returns_panel takes the calendar from the data rather than
+    inventing sessions, which would fabricate trading on market holidays.
+    """
+    from fscore.evaluation import returns_panel
+
+    dates = pd.bdate_range("2024-01-01", periods=6)
+    px = _price_frame({"ALIVE": [100] * 6,
+                       "DELIST": [100, 90, 80, None, None, None]}, dates)
+    r = returns_panel(px, ["ALIVE", "DELIST"], dates[0], dates[-1],
+                      delisting_return=-0.30)
+    cum = (1 + r.fillna(0)).prod() - 1
+    assert abs(cum["DELIST"] - (0.8 * 0.7 - 1)) < 1e-9   # -20%, then -30%
+    assert abs(cum["ALIVE"]) < 1e-12                      # untouched
+
+
+def test_price_gaps_do_not_swallow_returns():
+    """Differencing around a hole used to book the move across it as 0."""
+    from fscore.evaluation import returns_panel
+
+    dates = pd.bdate_range("2024-01-01", periods=5)
+    px = _price_frame({"GAPPY": [100, 101, None, 110, 111]}, dates)
+    r = returns_panel(px, ["GAPPY"], dates[0], dates[-1])
+    cum = float((1 + r.fillna(0)).prod().iloc[0] - 1)
+    assert abs(cum - 0.11) < 1e-9                 # 100 -> 111, nothing lost
+
+
+def test_fscore_ties_are_broken_at_random_not_by_value():
+    """Score rank is respected; within a tied score the order is random and
+    reproducible — never sorted by B/M, which would let the value factor
+    choose the part of the basket the tie-break decides."""
+    from fscore.selection.baskets import rank_by_fscore, tie_break_slots
+
+    scored = pd.DataFrame({
+        "ticker": [f"T{i}" for i in range(10)],
+        "fscore": [9, 8, 8, 8, 8, 8, 8, 8, 8, 1],
+        "bm": [0.1, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 0.5],
+    })
+
+    top = rank_by_fscore(scored, seed=1).head(4)["ticker"].tolist()
+    assert top[0] == "T0"                       # the 9 outranks every 8
+    assert "T9" not in top                      # the 1 never makes the cut
+    # had ties been broken by B/M, the next three would be the highest-B/M
+    # names in order; random ordering must not reproduce that
+    assert top[1:] != ["T1", "T2", "T3"]
+
+    assert (rank_by_fscore(scored, seed=1)["ticker"].tolist()
+            == rank_by_fscore(scored, seed=1)["ticker"].tolist())   # reproducible
+    assert (rank_by_fscore(scored, seed=1)["ticker"].tolist()
+            != rank_by_fscore(scored, seed=2)["ticker"].tolist())   # seed matters
+
+    # 4-name basket: 1 slot earned on score, 3 decided by the tie-break
+    assert tie_break_slots(scored, 4) == 3
+
+
+def test_vietnam_is_long_only():
+    """Shorting is not available in Vietnam, so the long-short strategy must
+    not appear in its results — an untradable book would overstate them."""
+    from fscore.markets import allows_shorting
+
+    assert allows_shorting("us") and allows_shorting("japan")
+    assert not allows_shorting("vietnam")
+    assert not allows_shorting("some-unlisted-market")   # conservative default
+
+
+def test_long_short_book_is_dollar_neutral():
+    """Long top-k / short bottom-k: nets to zero, gross 2, legs disjoint."""
+    from fscore.grid import LONG_SHORT
+
+    longs, shorts = ["A", "B", "C"], ["X", "Y", "Z"]
+    w = pd.concat([pd.Series(1 / len(longs), index=longs),
+                   pd.Series(-1 / len(shorts), index=shorts)])
+    assert abs(w.sum()) < 1e-12                  # dollar neutral
+    assert abs(w.abs().sum() - 2.0) < 1e-12      # gross exposure 2
+    assert not set(longs) & set(shorts)          # no name in both legs
+    assert LONG_SHORT == "fscore_LS"
+
+
+def test_significance_is_judged_at_5_percent_only():
+    """One level, fixed in advance: p < 0.05. Nothing is 'marginally
+    significant' at 6-10%, nothing gets a 1% tier."""
+    from fscore.evaluation import ALPHA
+
+    assert ALPHA == 0.05
+
+    sig = vs_random(2.0, [1.0] * 96 + [3.0] * 4)      # p = 0.04
+    marginal = vs_random(2.0, [1.0] * 94 + [3.0] * 6)  # p = 0.06
+    assert sig["p_value"] < 0.05 and sig["significant"] is True
+    assert marginal["p_value"] > 0.05 and marginal["significant"] is False
+    assert sig["alpha"] == marginal["alpha"] == 0.05
 
 
 if __name__ == "__main__":

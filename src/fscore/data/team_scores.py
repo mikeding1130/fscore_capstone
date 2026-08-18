@@ -38,6 +38,17 @@ def load_team_scores(market: str, data_dir: str | Path = "data",
     """Tidy frame: one row per (score_year, ticker) with fscore, signals,
     sector, shares, and B/M joined from the market's fundamentals cache.
 
+    **Only complete scores are kept.** A firm-year is dropped unless all nine
+    signals are present: a partial score is not a low score, and summing the
+    signals that happen to be available would silently push those firms
+    towards the bottom of the ranking (and into the short leg). The test is
+    made directly on the nine signal columns rather than on the workbook's
+    own availability flag, so the rule holds whatever the workbook says.
+
+    Every exclusion is counted and written to {market}_score_exclusions.csv
+    (see `exclusion_report`), so the report can state how much data was
+    discarded and why.
+
     Cached as {market}_team_scores.csv; delete or pass refresh=True after
     the workbook is updated.
     """
@@ -48,14 +59,27 @@ def load_team_scores(market: str, data_dir: str | Path = "data",
         return pd.read_csv(cache)
 
     xl = pd.ExcelFile(d / "processed" / WORKBOOKS[market])
-    rows = []
+    rows, dropped = [], []
     for y in years:
         if str(y) not in xl.sheet_names:
             continue
         sheet = xl.parse(str(y))
-        ok = sheet[(sheet.Score_Available == True)  # noqa: E712
-                   & sheet.Resolved_Yahoo_Symbol.notna()
-                   & sheet.F_Score.notna()]
+        n_signals = sheet[SIGNAL_COLS].notna().sum(axis=1)
+        incomplete = n_signals < len(SIGNAL_COLS)
+        no_symbol = sheet.Resolved_Yahoo_Symbol.isna()
+        no_score = sheet.F_Score.isna()
+        keep = ~incomplete & ~no_symbol & ~no_score
+        dropped.append({
+            "score_year": y,
+            "rows": len(sheet),
+            "dropped_incomplete_signals": int(incomplete.sum()),
+            "dropped_no_symbol": int((~incomplete & no_symbol).sum()),
+            "dropped_no_score": int((~incomplete & ~no_symbol & no_score).sum()),
+            "kept": int(keep.sum()),
+            "median_signals_when_incomplete": (float(n_signals[incomplete].median())
+                                               if incomplete.any() else float("nan")),
+        })
+        ok = sheet[keep]
         for _, r in ok.iterrows():
             rows.append({
                 "score_year": y,
@@ -78,7 +102,32 @@ def load_team_scores(market: str, data_dir: str | Path = "data",
     out = out.merge(bm[["ticker", "fiscal_year", "bm", "market_cap"]],
                     on=["ticker", "fiscal_year"], how="left")
     out.to_csv(cache, index=False)
+    pd.DataFrame(dropped).to_csv(d / f"{market}_score_exclusions.csv", index=False)
     return out
+
+
+def exclusion_report(market: str, data_dir: str | Path = "data",
+                     by_year: bool = False) -> pd.DataFrame:
+    """How much data the completeness rule discarded, for the write-up.
+
+    Per score year: rows in the workbook, rows dropped because fewer than
+    nine signals were available, rows dropped for a missing symbol or score,
+    and rows kept. `by_year=False` returns the study totals.
+    """
+    p = Path(data_dir) / f"{market.lower()}_score_exclusions.csv"
+    if not p.exists():
+        raise FileNotFoundError(
+            f"{p} missing — call load_team_scores(..., refresh=True) first")
+    rep = pd.read_csv(p)
+    if by_year:
+        return rep.set_index("score_year")
+    cols = ["rows", "dropped_incomplete_signals", "dropped_no_symbol",
+            "dropped_no_score", "kept"]
+    total = rep[cols].sum()
+    total["pct_dropped_incomplete"] = round(
+        100 * total.dropped_incomplete_signals / total.rows, 2)
+    total["pct_kept"] = round(100 * total.kept / total.rows, 2)
+    return total.to_frame(market.lower()).T
 
 
 def sectors_from_scores(scores: pd.DataFrame) -> pd.Series:

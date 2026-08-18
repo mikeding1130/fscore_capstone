@@ -18,10 +18,24 @@ def marchenko_pastur_bound(n_obs: int, n_assets: int, sigma2: float = 1.0) -> fl
     return sigma2 * (1 + np.sqrt(q)) ** 2
 
 
-def clean_rmt(returns: pd.DataFrame, detone: bool = True) -> np.ndarray:
+def clean_rmt(returns: pd.DataFrame, detone: bool = False) -> np.ndarray:
     """Denoise (flatten sub-MP eigenvalues) and optionally detone (remove the
     dominant market mode) a covariance matrix estimated from `returns`
-    (rows = dates, cols = tickers). Returns the cleaned covariance."""
+    (rows = dates, cols = tickers). Returns the cleaned covariance.
+
+    Denoising is always safe: the noise-band eigenvalues are replaced by their
+    mean, which preserves the trace and leaves the matrix well conditioned.
+
+    **Detoning defaults to False and must not be combined with an inverse.**
+    Removing the market eigenmode makes the correlation matrix singular (its
+    smallest eigenvalue goes to ~0), so feeding it to a minimum-variance
+    solver optimises residual risk only: on a 25-name basket the detoned
+    solution predicted 0.03% annualised vol against ~14% realised, and the
+    weights collapsed towards equal weight (effective N 23 of 25). Detoning
+    belongs to correlation/clustering analysis, not to portfolio inversion
+    (López de Prado 2020). Pass detone=True only for that kind of diagnostic,
+    or to reproduce the pre-2026-08 results.
+    """
     X = returns.dropna(how="any")
     n_obs, n_assets = X.shape
     corr = np.corrcoef(X.T)

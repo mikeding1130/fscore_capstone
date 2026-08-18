@@ -13,11 +13,35 @@ import pandas as pd
 BASKET_SIZE = 30  # frozen-scope default;
 
 
-def fscore_basket(scored: pd.DataFrame, k: int = BASKET_SIZE) -> list[str]:
-    """Top-k by F-Score (ties broken by higher B/M if present)."""
-    cols = ["fscore"] + (["bm"] if "bm" in scored.columns else [])
-    return (scored.sort_values(cols, ascending=False)
-                  .head(k)["ticker"].tolist())
+def rank_by_fscore(scored: pd.DataFrame, seed: int | None = None) -> pd.DataFrame:
+    """Order by F-Score, highest first, **ties broken at random**.
+
+    The F-Score is an integer 0-9, so a 25-name basket drawn from ~70 names
+    is roughly one third decided by the tie-break: ~8 slots are filled from
+    the ~18 names sitting on the cut-off score. Breaking those ties by B/M
+    (the previous rule) let the value factor pick a third of the "F-Score"
+    basket, which is precisely what the value control is supposed to test
+    against. A seeded random tie-break keeps the basket a function of the
+    score alone, and stays reproducible.
+    """
+    rng = np.random.default_rng(seed)
+    shuffled = scored.iloc[rng.permutation(len(scored))]
+    return shuffled.sort_values("fscore", ascending=False, kind="stable")
+
+
+def tie_break_slots(scored: pd.DataFrame, k: int) -> int:
+    """How many of the k slots are decided by the tie-break (diagnostic)."""
+    if len(scored) < k:
+        return 0
+    ordered = scored.sort_values("fscore", ascending=False)
+    cutoff = ordered["fscore"].iloc[k - 1]
+    return int(k - (ordered["fscore"] > cutoff).sum())
+
+
+def fscore_basket(scored: pd.DataFrame, k: int = BASKET_SIZE,
+                  seed: int | None = None) -> list[str]:
+    """Top-k by F-Score, ties broken at random — see `rank_by_fscore`."""
+    return rank_by_fscore(scored, seed).head(k)["ticker"].tolist()
 
 
 def random_baskets(universe: list[str], k: int = BASKET_SIZE,

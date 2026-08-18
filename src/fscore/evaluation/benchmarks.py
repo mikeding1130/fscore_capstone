@@ -21,6 +21,8 @@ import zipfile
 import numpy as np
 import pandas as pd
 
+from .backtest import ALPHA
+
 FF_BASE = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
 FF_FILES = {
     "us": "F-F_Research_Data_Factors_daily_CSV.zip",
@@ -56,7 +58,10 @@ def fetch_ff_factors(market: str) -> pd.DataFrame:
 def factor_regression(daily: pd.Series, factors: pd.DataFrame) -> dict:
     """OLS of daily excess returns on [Mkt-RF, SMB, HML], Newey-West (5 lags).
 
-    Returns annualized alpha, its t-stat/p-value, betas, and R^2.
+    Returns annualized alpha, its t-stat/p-value, betas, R^2, and the verdict
+    at the study's single significance level (ALPHA = 5%). Alphas with
+    p >= 0.05 are reported as not significant — there is no "marginally
+    significant" tier.
     """
     import statsmodels.api as sm
 
@@ -69,6 +74,8 @@ def factor_regression(daily: pd.Series, factors: pd.DataFrame) -> dict:
         "alpha_annual": float(res.params["const"] * 252),
         "alpha_tstat": float(res.tvalues["const"]),
         "alpha_pvalue": float(res.pvalues["const"]),
+        "alpha_significant": bool(res.pvalues["const"] < ALPHA),
+        "alpha": ALPHA,
         "beta_mkt": float(res.params["Mkt-RF"]),
         "beta_smb": float(res.params["SMB"]),
         "beta_hml": float(res.params["HML"]),
