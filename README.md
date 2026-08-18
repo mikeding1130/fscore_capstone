@@ -120,57 +120,78 @@ test** D = Sharpe(GMV) − Sharpe(EW) per basket, a strict F ≥ 8 portfolio, an
 one pre-registered primary measure (net-of-cost Sharpe) tested at one
 pre-registered significance level (**5%**, `fscore.evaluation.ALPHA`).
 Formations run
-**July 2003 – July 2025** (23 chained holding years; the workbooks' first
-scoreable year is 2002, so 2000–2002 formations cannot exist). Aggregated
-outputs in `results/grid/`; build/execute via
-`python scripts/build_grid_notebooks.py execute`.
+**July 2012 – July 2025** (14 chained holding years), the window shared with
+the main study; covariances use 36 months of daily returns. Aggregated
+outputs in `results/grid/` and `results/grid_summary_2012_2025.csv`;
+build/execute with `python scripts/build_grid_notebooks.py execute`.
 
-Headline (full window): percentiles are insensitive to N (1,000 draws
-suffice). On this survivor-tilted blue-chip panel the screen alone does not
-beat same-universe random selection (US ≈ 16th pct at k = 25; Japan ≈ 80th
-pct, n.s.), and the optimisation gain D is statistically indistinguishable
-from the random-basket distribution in both markets. This contrasts with the
-high-B/M PIT design (main study: 93–97th pct under GMV) and the 2021–2025
-sub-window (US D ≈ +0.12, p ≈ 0.06) — the selection × construction synergy
-is **conditional** on universe design and estimation window, not universal.
+Headline: the percentile is insensitive to the number of random draws —
+1,000 and 5,000 agree to within a percentage point — but **sensitive to
+basket size**, which is itself a finding: k matters more than Monte-Carlo
+precision, and k = 25 is an extreme in both markets, so the grid should be
+read as a whole rather than at its best cell.
 
-## Headline results — developed pair
+| Sharpe percentile vs random | k = 20 | k = 25 | k = 30 |
+|---|---|---|---|
+| US | 10% | 9% | 17% |
+| Japan | 84% | 93% | 83% |
 
-Full tables and charts live in notebooks `03`/`04` (executed) and `results/`.
+The two markets diverge. In the US the screen lands **below** the random
+median and below plain universe equal weight (0.70–0.77 vs 0.84); in Japan
+it lands above both (0.84–0.87 vs 0.80). Neither clears 5% in any of the
+nine cells. The optimisation gain D is negative in both markets
+(−0.22 to −0.07), so under a 36-month covariance the minimum-variance step
+does not reward the F-Score basket. The long-short book is negative in the
+US (−0.33) and positive in Japan (+0.33), mirroring the selection result.
 
-All verdicts below are at the single pre-registered level, **α = 5%**.
+## Headline results — main study
 
-| | US (15 formations, Jul 2011 – Dec 2025) | Japan (3 formations, Jul 2023 – Dec 2025) |
+From the executed notebooks `03`/`04`; every verdict at the single
+pre-registered level, **α = 5%**.
+
+| | US (14 formations, Jul 2012 – Dec 2025) | Japan (3 formations, Jul 2023 – Dec 2025) |
 |---|---|---|
-| F-Score EW vs random | 64–69th pct, p ≈ 0.31–0.36 — n.s. | 66–70th pct, p ≈ 0.30–0.34 — n.s. |
-| F-Score + GMV vs random-GMV | 93–94th pct, p ≈ 0.06 — **n.s.** | 69th pct — n.s. |
-| F-Score + sector-GMV | 97th pct, p ≈ 0.03 — **significant** | 71st pct — n.s. |
-| vs market ETF | 17.0% vs 13.9% p.a. (GMV vs SPY) | 26.9% vs 20.0% p.a. (EW vs TOPIX) |
-| FF3 alpha (best variant) | 2.9% p.a., t = 1.83, p ≈ 0.07 — n.s. | 7.0% p.a., t = 1.00 — n.s. |
+| F-Score EW | 17.2% p.a., Sharpe 0.87 | 28.3% p.a., Sharpe 1.30 |
+| vs random baskets | 85th pct, p = 0.15 — n.s. | 78th pct, p = 0.22 — n.s. |
+| + GMV / sector-GMV | 83rd / 90th pct — n.s. | 61st / 64th pct — n.s. |
+| vs market ETF | 0.87 vs SPY 0.88 | 1.30 vs TOPIX 0.98 |
+| vs pure value screen | 0.87 vs 0.85 | 1.30 vs 1.28 |
+| Long-short (F-Score high − low) | Sharpe 0.10, −0.07 net | Sharpe −0.74 |
+| FF3 alpha | 2.1% p.a., t = 1.24 — n.s. | 8.3% p.a., t = 1.18 — n.s. |
 
-Reading: selection alone is not significant in either market. Only one test
-in the whole developed pair clears 5% — the sector-capped GMV placement in
-the US (p ≈ 0.03) — and it sits alongside a GMV placement that does not
-(p ≈ 0.06), so it is a single result, not a pattern. Note also that these
-figures predate two corrections (RMT detoning switched off, per-strategy
-trading costs); notebooks 03/04 need a re-run to refresh them.
+**No test in either market clears 5%.** The US portfolio matches SPY on a
+risk-adjusted basis (0.87 vs 0.88) after fourteen years; Japan beats its
+index over three years but on far too little data to conclude. In both
+markets the plain value screen performs within 0.03 Sharpe of the full
+F-Score, so the nine signals add little beyond the book-to-market sort that
+precedes them. The long-short variant is unprofitable in both.
+
+### Measurement sensitivity
+
+`scripts/eq_offer_sensitivity.py` scores the US sample both ways for the
+equity-issuance signal, since Japan can only use the share-count substitute:
+the two disagree on **38.2%** of firm-years (mean F-Score 5.59 vs 5.91,
+because buybacks mask issuance), yet the study-level effect is 0.013 of
+Sharpe and 6 percentage points of percentile, leaving every verdict
+unchanged. That bounds what the Japanese substitute can be costing.
 
 ## Data status
 
 | Market | Prices | Fundamentals | Universe membership | Backtest window |
 |---|---|---|---|---|
-| US | ✅ Yahoo (daily, 2008–) | ✅ SEC EDGAR XBRL (FY2009–, true 10-K filing dates) | ✅ historical S&P 500 members per formation date | **formations 2011–2025** (15 years) |
-| Japan | ✅ Yahoo (daily, 2022–) | ✅ Yahoo (5 annual periods) | ⚠️ current Nikkei 225 members | formations 2023–2025 |
+| US (main study) | ✅ Yahoo (daily, 2002–) | ✅ SEC EDGAR XBRL (FY2009–, true 10-K filing dates, incl. equity-issuance cash flow) | ✅ historical S&P 500 members per formation date | **formations 2012–2025** (14 years) |
+| Japan (main study) | ✅ Yahoo (daily, 2002–) | ⚠️ Yahoo (≈5 annual periods) | ⚠️ current Nikkei 225 members | formations 2023–2025 |
+| US / Japan (grid) | ✅ Yahoo (daily, 2002–) | ✅ derived panel, `results/panel/` | ⚠️ currently listed symbols | **formations 2012–2025** (14 years) |
 | Vietnam | TODO | TODO | TODO | team-maintained database, 10y |
 
-**Why the proposal's 2000 start is not fully reachable from free sources.**
-US: EDGAR XBRL begins with the 2009–2011 mandate, so machine-readable
-point-in-time statements start at FY2009 (pre-2009 requires CRSP/Compustat).
-Japan: no free source serves long-history fundamentals at all (J-Quants free
-tier is 2 years; EDINET XBRL starts 2008 and needs the Japanese-GAAP
-taxonomy) — extending Japan needs a licensed source (J-Quants paid tier /
-Refinitiv). Both plug into the same canonical schemas without touching
-downstream code.
+**Why the sample starts in 2012.** EDGAR XBRL begins with the 2009–2011
+mandate, so machine-readable point-in-time US statements start at FY2009,
+and a 36-month covariance window needs three further years before the first
+formation. For Japan, no free source serves long-history fundamentals:
+J-Quants' free tier was measured at roughly two years of daily bars with no
+statements and no historical listing snapshot (`scripts/check_jquants.py`
+re-runs that check), and EDINET requires parsing two Japanese XBRL
+taxonomies. 2012 is therefore the earliest start both markets share.
 
 **Remaining caveats.** US: membership is point-in-time (historical
 constituents list) and EDGAR keeps filings of delisted firms, but names whose

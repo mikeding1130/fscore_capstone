@@ -132,7 +132,8 @@ placement.round(3)"""),
         code("""fig, ax = plt.subplots(figsize=(7, 3.5))
 sh = study.mc_metric(study.mc_ew, "sharpe")
 ax.hist(sh, bins=40, alpha=0.75, label=f"{N_MC} random baskets (EW)")
-fs = placement.loc[("random (full universe)", "sharpe"), "fscore"]
+# the placement index is (pool, statistic, basis); the histogram shows gross
+fs = placement.loc[("random (full universe)", "sharpe", "gross"), "fscore"]
 ax.axvline(fs, color="crimson", lw=2, label=f"F-Score EW = {fs:.2f}")
 ax.set_xlabel("Sharpe (chained, gross)"); ax.set_ylabel("baskets"); ax.legend(fontsize=8)
 ax.set_title(f"{MARKET.upper()} k={K}: F-Score vs {N_MC} random baskets")

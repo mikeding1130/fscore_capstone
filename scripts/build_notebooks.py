@@ -185,10 +185,13 @@ bench_rets = {{name: benchmark_returns(bench, tk, start, end)
 
 nav = (1 + study.daily.fillna(0)).cumprod()
 fig, ax = plt.subplots(figsize=(10, 5))
+# solid for the F-Score variants, dashed for the controls; a strategy not
+# named here still plots, so adding one never breaks the figure
 styles = {{"fscore_EW": ("-", 2.2), "fscore_GMV": ("-", 1.4), "fscore_GMVsec": ("-", 1.4),
+          "fscore_LS": ("-", 1.4),
           "value_EW": ("--", 1.2), "mktcap_EW": ("--", 1.2), "liquidity_EW": ("--", 1.2)}}
 for s in study.daily.columns:
-    ls, lw = styles[s]
+    ls, lw = styles.get(s, ("-" if s.startswith("fscore") else "-.", 1.2))
     ax.plot(nav.index, nav[s], ls, lw=lw, label=s)
 for name, r in bench_rets.items():
     ax.plot((1 + r).cumprod(), ":", lw=1.6, label=name)
