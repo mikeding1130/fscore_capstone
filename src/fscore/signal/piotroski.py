@@ -27,10 +27,18 @@ SIGNALS = [
 
 
 def piotroski_signals(fundamentals: pd.DataFrame, year: int) -> pd.DataFrame:
-    """Compute the nine signals for scoring year `year` (needs year-1 rows)."""
+    """Compute the nine signals for scoring year `year`.
+
+    Needs rows for years t and t-1, and — for the year-on-year deltas scaled
+    by beginning-of-year assets — the total assets reported for t-2. A firm
+    without the t-2 row still scores, falling back to period-end assets for
+    the prior-year ratio; the count is reported in `.attrs`.
+    """
     f = fundamentals
     t = f[f.fiscal_year == year].set_index("ticker")
     tm1 = f[f.fiscal_year == year - 1].set_index("ticker")
+    tm2_assets = (f[f.fiscal_year == year - 2]
+                  .set_index("ticker")["total_assets"])
     common = t.index.intersection(tm1.index)
     t, tm1 = t.loc[common], tm1.loc[common]
 
@@ -52,20 +60,33 @@ def piotroski_signals(fundamentals: pd.DataFrame, year: int) -> pd.DataFrame:
     has_cf_issue = (t["equity_issued"].notna() if "equity_issued" in t.columns
                     else pd.Series(False, index=t.index))
 
-    # denominators: average assets, guarding zeros
-    avg_assets = (t.total_assets + tm1.total_assets) / 2
-    roa_t = t.net_income / avg_assets
-    roa_tm1 = tm1.net_income / tm1.total_assets  # simple prior-year ROA
+    # Denominators follow Piotroski (2000): ratios are scaled by
+    # BEGINNING-of-year total assets, and the year-on-year deltas compare two
+    # ratios built the same way. Scaling the current year by average assets
+    # while the prior year used period-end assets — as an earlier version of
+    # this file did — puts a change of denominator convention inside the
+    # difference, so ΔROA and Δturnover then measure partly that rather than
+    # the operating change they are supposed to capture.
+    beg = tm1.total_assets                                  # assets at t-1
+    beg_prior = tm2_assets.reindex(common)                   # assets at t-2
+    n_no_tm2 = int(beg_prior.isna().sum())
+    beg_prior = beg_prior.fillna(tm1.total_assets)           # documented fallback
+    avg = (t.total_assets + tm1.total_assets) / 2
+    avg_prior = (tm1.total_assets + beg_prior) / 2
+
+    roa_t = t.net_income / beg
+    roa_tm1 = tm1.net_income / beg_prior
 
     out = pd.DataFrame(index=common)
     # -- profitability
     out["roa_pos"] = (roa_t > 0).astype(int)
     out["cfo_pos"] = (t.cfo > 0).astype(int)
     out["delta_roa_pos"] = (roa_t > roa_tm1).astype(int)
-    out["accruals_ok"] = (t.cfo / avg_assets > roa_t).astype(int)  # CFO > NI (scaled)
+    out["accruals_ok"] = (t.cfo / beg > roa_t).astype(int)   # CFO > NI, same scaling
     # -- leverage / liquidity / dilution
+    # leverage uses average assets in the original, on both sides of the delta
     out["delta_leverage_down"] = (
-        t.long_term_debt / avg_assets < tm1.long_term_debt / tm1.total_assets
+        t.long_term_debt / avg < tm1.long_term_debt / avg_prior
     ).astype(int)
     curr_t = t.current_assets / t.current_liabilities
     curr_tm1 = tm1.current_assets / tm1.current_liabilities
@@ -84,8 +105,8 @@ def piotroski_signals(fundamentals: pd.DataFrame, year: int) -> pd.DataFrame:
     gm_t = (t.revenue - t.cogs) / t.revenue
     gm_tm1 = (tm1.revenue - tm1.cogs) / tm1.revenue
     out["delta_margin_up"] = (gm_t > gm_tm1).astype(int)
-    turn_t = t.revenue / avg_assets
-    turn_tm1 = tm1.revenue / tm1.total_assets
+    turn_t = t.revenue / beg
+    turn_tm1 = tm1.revenue / beg_prior
     out["delta_turnover_up"] = (turn_t > turn_tm1).astype(int)
 
     out["fscore"] = out[SIGNALS].sum(axis=1)
@@ -94,4 +115,5 @@ def piotroski_signals(fundamentals: pd.DataFrame, year: int) -> pd.DataFrame:
     out.attrs["scored"] = len(out)
     out.attrs["eq_offer_from_cashflow"] = int(has_cf_issue.sum())
     out.attrs["eq_offer_from_shares"] = int((~has_cf_issue).sum())
+    out.attrs["no_tm2_assets"] = n_no_tm2
     return out
