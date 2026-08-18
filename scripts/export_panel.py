@@ -15,10 +15,12 @@ Why that distinction holds (see PROVENANCE.md for the per-column account):
   * the facts underneath are public statutory filings (10-K, 有価証券報告書)
     that any reader can recompute from, independently of any vendor.
 
-Raw vendor values are dropped rather than shipped: `shares_outstanding` is a
-per-security figure from the workbook and is removed here. Nothing downstream
-reads it — the EQ_OFFER flag was computed inside the workbook from its own
-year-on-year share columns, so the flag survives the removal intact.
+No continuous per-security value is shipped at all. `shares_outstanding` is a
+raw vendor figure and nothing reads it — the EQ_OFFER flag was computed inside
+the workbook from its own year-on-year share columns, so the flag survives its
+removal intact. `bm` and `market_cap` are ours rather than the vendor's, but
+they are still per-security numbers, so they are recomputed at load time from
+the rebuildable caches instead of travelling with the panel.
 
 Run:  python scripts/export_panel.py [us|japan|both]
 Writes results/panel/{market}_fscore_panel.csv and results/panel/PROVENANCE.md
@@ -37,11 +39,17 @@ from fscore.data.team_scores import SIGNAL_COLS, load_team_scores  # noqa: E402
 
 OUT = ROOT / "results" / "panel"
 
-# Columns that may leave the repository, and why each one is safe.
-KEEP = ["score_year", "fiscal_year", "ticker", "fscore"] + \
-       [c.lower() for c in SIGNAL_COLS] + ["bm", "market_cap", "sector"]
-# Raw vendor values: never exported.
-DROP = ["shares_outstanding"]
+# Only irreversible content leaves the repository: identifiers, the nine
+# one-bit flags and their sum. Every continuous per-security value is
+# excluded and recomputed at load time from the freely rebuildable caches
+# (see fscore.data.team_scores._attach_market_values), so nothing here is a
+# data point that could stand in for the source.
+KEEP = (["score_year", "fiscal_year", "ticker", "fscore"]
+        + [c.lower() for c in SIGNAL_COLS] + ["sector"])
+# Continuous values, deliberately not exported: shares_outstanding is a raw
+# vendor figure; bm and market_cap are ours but are still per-security
+# numbers, so they are regenerated rather than shipped.
+DROP = ["shares_outstanding", "bm", "market_cap"]
 
 PROVENANCE = """# Panel provenance
 
@@ -52,13 +60,20 @@ What each column is, where it came from, and why it can be published.
 | `ticker`, `score_year`, `fiscal_year` | identifiers | not data |
 | `f_roa` … `f_dturn` (nine flags) | derived from licensed-terminal fundamentals | **irreversible**: each is one bit, the outcome of a comparison (e.g. ROA > 0). The underlying value cannot be recovered. |
 | `fscore` | sum of the nine flags | further aggregation, 0–9 |
-| `bm`, `market_cap` | this project's own Yahoo Finance / SEC EDGAR cache | not vendor data |
 | `sector` | Yahoo Finance classification | not vendor data |
 
-Deliberately **not** exported: `shares_outstanding` — a per-security raw
-value from the source workbook. It is unused downstream; the EQ_OFFER flag
-was computed inside the workbook from its own year-on-year share columns, so
-removing it changes no result.
+**No continuous per-security value is exported.** Three columns that earlier
+drafts carried are excluded:
+
+- `shares_outstanding` — a raw vendor figure. Nothing reads it: the EQ_OFFER
+  flag was computed inside the source workbook from its own year-on-year
+  share columns, so the flag is unaffected by its removal.
+- `bm`, `market_cap` — ours rather than the vendor's, but still per-security
+  numbers. They are recomputed at load time from the caches that
+  `scripts/fetch_us_edgar.py` and `scripts/fetch_us_japan.py` rebuild from
+  public sources, so shipping them would add nothing but exposure.
+
+What remains is identifiers plus nine bits and their sum.
 
 ## Information content
 
@@ -74,17 +89,20 @@ filings without any commercial subscription.
 
 ## Reproducing the results from this panel
 
-`results/panel/*.csv` plus the price caches rebuilt by
-`scripts/fetch_us_japan.py` / `scripts/fetch_us_edgar.py` are enough to
-re-run every notebook: the study consumes `fscore` for ranking and
-`bm` / `market_cap` / `sector` for the controls and constraints.
+`results/panel/*.csv` plus the caches rebuilt by `scripts/fetch_us_edgar.py`
+and `scripts/fetch_us_japan.py` are enough to re-run every notebook. The
+study consumes `fscore` for ranking and `sector` for the sector constraint;
+book-to-market and market capitalisation are joined from the rebuilt caches
+when the panel is loaded, so no continuous value has to travel with it.
 
 ## Status of permission
 
-The terminal licence treats genuinely derived data more permissively than raw
-redistribution, but prior approval is commonly still required. Confirmation
-was requested from the vendor; until it is on file, these CSVs are generated
-locally and kept out of the repository (see .gitignore).
+The terminal is not accessible to the team, so a written confirmation cannot
+be obtained. The panel was therefore reduced to the narrowest form that still
+allows the study to be reproduced: identifiers and irreversible one-bit
+flags, with every continuous value regenerated from public sources at run
+time. The United States panel can additionally be rebuilt end to end from SEC
+EDGAR alone (`scripts/fetch_us_edgar.py`), with no vendor input of any kind.
 """
 
 

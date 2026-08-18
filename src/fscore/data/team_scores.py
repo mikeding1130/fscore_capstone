@@ -56,9 +56,22 @@ def load_team_scores(market: str, data_dir: str | Path = "data",
     d = Path(data_dir)
     cache = d / f"{market}_team_scores.csv"
     if cache.exists() and not refresh:
-        return pd.read_csv(cache)
+        return _attach_market_values(pd.read_csv(cache), market, d)
 
-    xl = pd.ExcelFile(d / "processed" / WORKBOOKS[market])
+    wb = d / "processed" / WORKBOOKS[market]
+    if not wb.exists():
+        # No licensed workbook here — fall back to the published panel, which
+        # carries only the irreversible 0/1 flags. Everything continuous is
+        # recomputed below from the freely rebuildable caches, so this path
+        # reproduces the study without redistributing vendor values.
+        panel = _shipped_panel(market)
+        if panel is None:
+            raise FileNotFoundError(
+                f"neither {wb} nor a published panel for {market!r} was found; "
+                "run scripts/export_panel.py, or place the source workbook")
+        return _attach_market_values(panel, market, d)
+
+    xl = pd.ExcelFile(wb)
     rows, dropped = [], []
     for y in years:
         if str(y) not in xl.sheet_names:
@@ -93,15 +106,8 @@ def load_team_scores(market: str, data_dir: str | Path = "data",
             })
     out = pd.DataFrame(rows).drop_duplicates(["score_year", "ticker"])
 
-    # book-to-market from the existing fundamentals cache (fiscal-year join);
-    # coverage is partial for early Japan years and reported downstream
-    fund = pd.read_csv(d / f"{market}_fundamentals.csv")
-    bm = fund[["ticker", "fiscal_year", "book_value", "market_cap"]].copy()
-    bm["bm"] = bm.book_value / bm.market_cap
-    bm.loc[bm.market_cap <= 0, "bm"] = np.nan
-    out = out.merge(bm[["ticker", "fiscal_year", "bm", "market_cap"]],
-                    on=["ticker", "fiscal_year"], how="left")
     out.to_csv(cache, index=False)
+    out = _attach_market_values(out, market, d)
     pd.DataFrame(dropped).to_csv(d / f"{market}_score_exclusions.csv", index=False)
     return out
 
@@ -128,6 +134,36 @@ def exclusion_report(market: str, data_dir: str | Path = "data",
         100 * total.dropped_incomplete_signals / total.rows, 2)
     total["pct_kept"] = round(100 * total.kept / total.rows, 2)
     return total.to_frame(market.lower()).T
+
+
+def _shipped_panel(market: str) -> pd.DataFrame | None:
+    """The derived panel published with the repository, if present."""
+    p = (Path(__file__).resolve().parents[3] / "results" / "panel"
+         / f"{market}_fscore_panel.csv")
+    return pd.read_csv(p) if p.exists() else None
+
+
+def _attach_market_values(scores: pd.DataFrame, market: str,
+                          data_dir: Path) -> pd.DataFrame:
+    """Add book-to-market and market cap from the fundamentals cache.
+
+    These are continuous per-security values, so they are never carried in
+    the published panel — they are recomputed here from the caches that
+    `scripts/fetch_*.py` rebuild from public sources. Coverage begins where
+    the cache does (US FY2009 via EDGAR, Japan later via Yahoo); the gap is
+    reported in the per-year diagnostics rather than filled.
+    """
+    if {"bm", "market_cap"}.issubset(scores.columns):
+        return scores
+    f = Path(data_dir) / f"{market}_fundamentals.csv"
+    if not f.exists():
+        return scores.assign(bm=np.nan, market_cap=np.nan)
+    fund = pd.read_csv(f)
+    bm = fund[["ticker", "fiscal_year", "book_value", "market_cap"]].copy()
+    bm["bm"] = bm.book_value / bm.market_cap
+    bm.loc[bm.market_cap <= 0, "bm"] = np.nan
+    return scores.merge(bm[["ticker", "fiscal_year", "bm", "market_cap"]],
+                        on=["ticker", "fiscal_year"], how="left")
 
 
 def sectors_from_scores(scores: pd.DataFrame) -> pd.Series:

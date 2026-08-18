@@ -7,13 +7,20 @@ What each column is, where it came from, and why it can be published.
 | `ticker`, `score_year`, `fiscal_year` | identifiers | not data |
 | `f_roa` … `f_dturn` (nine flags) | derived from licensed-terminal fundamentals | **irreversible**: each is one bit, the outcome of a comparison (e.g. ROA > 0). The underlying value cannot be recovered. |
 | `fscore` | sum of the nine flags | further aggregation, 0–9 |
-| `bm`, `market_cap` | this project's own Yahoo Finance / SEC EDGAR cache | not vendor data |
 | `sector` | Yahoo Finance classification | not vendor data |
 
-Deliberately **not** exported: `shares_outstanding` — a per-security raw
-value from the source workbook. It is unused downstream; the EQ_OFFER flag
-was computed inside the workbook from its own year-on-year share columns, so
-removing it changes no result.
+**No continuous per-security value is exported.** Three columns that earlier
+drafts carried are excluded:
+
+- `shares_outstanding` — a raw vendor figure. Nothing reads it: the EQ_OFFER
+  flag was computed inside the source workbook from its own year-on-year
+  share columns, so the flag is unaffected by its removal.
+- `bm`, `market_cap` — ours rather than the vendor's, but still per-security
+  numbers. They are recomputed at load time from the caches that
+  `scripts/fetch_us_edgar.py` and `scripts/fetch_us_japan.py` rebuild from
+  public sources, so shipping them would add nothing but exposure.
+
+What remains is identifiers plus nine bits and their sum.
 
 ## Information content
 
@@ -29,14 +36,17 @@ filings without any commercial subscription.
 
 ## Reproducing the results from this panel
 
-`results/panel/*.csv` plus the price caches rebuilt by
-`scripts/fetch_us_japan.py` / `scripts/fetch_us_edgar.py` are enough to
-re-run every notebook: the study consumes `fscore` for ranking and
-`bm` / `market_cap` / `sector` for the controls and constraints.
+`results/panel/*.csv` plus the caches rebuilt by `scripts/fetch_us_edgar.py`
+and `scripts/fetch_us_japan.py` are enough to re-run every notebook. The
+study consumes `fscore` for ranking and `sector` for the sector constraint;
+book-to-market and market capitalisation are joined from the rebuilt caches
+when the panel is loaded, so no continuous value has to travel with it.
 
 ## Status of permission
 
-The terminal licence treats genuinely derived data more permissively than raw
-redistribution, but prior approval is commonly still required. Confirmation
-was requested from the vendor; until it is on file, these CSVs are generated
-locally and kept out of the repository (see .gitignore).
+The terminal is not accessible to the team, so a written confirmation cannot
+be obtained. The panel was therefore reduced to the narrowest form that still
+allows the study to be reproduced: identifiers and irreversible one-bit
+flags, with every continuous value regenerated from public sources at run
+time. The United States panel can additionally be rebuilt end to end from SEC
+EDGAR alone (`scripts/fetch_us_edgar.py`), with no vendor input of any kind.
