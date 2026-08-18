@@ -41,25 +41,71 @@ The multi-year loop (annual July-1 formations, chained holding years) lives in
 | `src/fscore/construction/` | EW / long-only GMV / sector-capped GMV (exact SLSQP solve); RMT covariance cleaning |
 | `src/fscore/evaluation/` | backtest metrics, random-distribution placement; `benchmarks.py` (investable ETFs, Fama-French 3-factor regression) |
 | `src/fscore/pipeline.py` | full multi-year study runner (PIT snapshot → universe → score → baskets → weights → chained backtest) |
-| `scripts/` | `fetch_us_japan.py` (build the data cache), `build_notebooks.py` |
-| `notebooks/` | `01`/`02` single-year synthetic demos (US, Japan); `03`/`04` **full real-data studies** (US, Japan) |
-| `data/` | git-ignored cache; see `data/README.md` for schemas and gating checks |
-| `results/` | CSV outputs of the full studies (summary, MC placement, turnover, factor regressions) |
-| `tests/` | signal smoke test + construction/PIT unit tests |
+| `src/fscore/markets.py` | per-market trading constraints (where a short leg is tradable) |
+| `src/fscore/grid.py` | robustness grid runner (basket size × random-sample size × market) |
+| `src/fscore/plotting.py` | figure defaults; every saved chart is 300 dpi |
+| `scripts/` | data builders (`fetch_us_edgar.py`, `fetch_us_japan.py`), notebook generators, `export_panel.py` |
+| `notebooks/` | `01`/`02` synthetic demos; `03`/`04` full studies; `grid/` 18 robustness notebooks |
+| `data/` | git-ignored cache, rebuilt by the fetch scripts |
+| `results/` | CSVs and 300-dpi figures behind every table and chart in the report |
+| `tests/` | 17 tests, each pinning one design decision |
 
-## Quick start
+## Reproducing the results
+
+Everything in the report comes from the notebooks in this repository. To
+reproduce them from a clean clone:
+
+**1. Install** (Python 3.11+):
 
 ```bash
 pip install -r requirements.txt
-python tests/test_signals.py && python tests/test_pipeline.py
-
-# developed pair, real data (one-shot download, ~30 min):
-python scripts/fetch_us_japan.py
-jupyter lab notebooks/03_us_full_study.ipynb      # or 04_japan_full_study
 ```
 
-Notebooks `01`/`02` run end-to-end on **clearly-labeled synthetic demo data**
-(no network needed); `03`/`04` run the full study on the cached real data.
+**2. Check the install** — runs in seconds, no network, no data needed:
+
+```bash
+python tests/test_signals.py && python tests/test_pipeline.py
+```
+
+**3. Build the data caches.** They are git-ignored because they are large and
+rebuildable; both scripts are resumable and safe to re-run.
+
+```bash
+python scripts/fetch_us_edgar.py
+```
+
+```bash
+python scripts/fetch_us_japan.py
+```
+
+`fetch_us_edgar.py` pulls US fundamentals from SEC EDGAR (true 10-K filing
+dates, FY2009+) and takes roughly an hour; `fetch_us_japan.py` pulls prices and
+Japanese fundamentals from Yahoo Finance in about forty minutes. The signal
+panel itself ships as a derived CSV — see `results/panel/PROVENANCE.md` for
+what it contains and why the raw vendor fundamentals are not redistributed.
+
+**4. Re-run the analysis.** Each command regenerates the notebooks from their
+source templates and executes them, writing CSVs to `results/` and 300-dpi
+figures to `results/figures/`:
+
+```bash
+python scripts/build_grid_notebooks.py execute
+```
+
+```bash
+python scripts/build_notebooks.py
+```
+
+The grid takes about an hour (18 notebooks); the two main-study notebooks
+about twenty minutes. Results are deterministic — every random draw is
+seeded — so a clean run reproduces the reported figures exactly.
+
+Notebooks `01`/`02` are self-contained demos on **clearly-labelled synthetic
+data**; they need no network and are the fastest way to see the pipeline end
+to end.
+
+For a non-technical overview of what the system does and why, see
+[SOLUTION_DESIGN.md](SOLUTION_DESIGN.md).
 
 ## Peer-review grid study (notebooks/grid/)
 
