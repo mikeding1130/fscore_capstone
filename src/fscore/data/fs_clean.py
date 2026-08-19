@@ -180,3 +180,109 @@ def scores_from_fs_clean(market: str, data_dir: str | Path = "data",
     panel.attrs["per_year"] = pd.DataFrame(dropped)
     panel.attrs["unmapped_identifiers"] = fund.attrs["unmapped_identifiers"]
     return panel
+
+
+def _sector_map(market: str, data_dir: Path) -> pd.Series:
+    """Ticker -> sector, from the constituent file first and the scores
+    workbook second. Neither covers every name on its own; names still
+    missing fall into the optimiser's "Unknown" bucket, which the sector cap
+    then treats as one group — reported rather than silently merged."""
+    parts = []
+    csv = data_dir / f"{market}_sectors.csv"
+    if csv.exists():
+        d = pd.read_csv(csv).dropna(subset=["sector"])
+        parts.append(d.set_index("ticker")["sector"])
+    wb = data_dir / "processed" / SCORE_WORKBOOKS[market]
+    if wb.exists():
+        xl = pd.ExcelFile(wb)
+        rows = []
+        for sheet in (s for s in xl.sheet_names if s.isdigit()):
+            d = xl.parse(sheet)[["Resolved_Yahoo_Symbol", "Yahoo_Sector"]].dropna()
+            rows.append(d.rename(columns={"Resolved_Yahoo_Symbol": "ticker",
+                                          "Yahoo_Sector": "sector"}))
+        if rows:
+            d = pd.concat(rows).drop_duplicates("ticker", keep="last")
+            parts.append(d.set_index("ticker")["sector"])
+    if not parts:
+        return pd.Series(dtype=object)
+    return pd.concat(parts).groupby(level=0).first()
+
+
+def load_scores(market: str, data_dir: str | Path = "data",
+                refresh: bool = False) -> pd.DataFrame:
+    """The study's score panel, computed by our own signal code.
+
+    This is the single entry point the grid and the export script use, so
+    both sit on the same implementation instead of one reading precomputed
+    flags. Adds the sector label and rejoins book-to-market and market cap
+    from the fundamentals cache; results are cached as
+    {market}_fsclean_scores.csv.
+    """
+    market = market.lower()
+    d = Path(data_dir)
+    cache = d / f"{market}_fsclean_scores.csv"
+    if cache.exists() and not refresh:
+        return pd.read_csv(cache)
+
+    prices = pd.read_csv(d / f"{market}_prices.csv.gz", parse_dates=["date"])
+    panel = scores_from_fs_clean(market, d, prices=prices)
+    panel["sector"] = panel.ticker.map(_sector_map(market, d))
+
+    from .team_scores import _attach_market_values
+    panel = _attach_market_values(panel, market, d)
+    panel.to_csv(cache, index=False)
+    _write_exclusions(market, d, panel)
+    return panel
+
+
+def _write_exclusions(market: str, data_dir: Path, panel: pd.DataFrame) -> None:
+    """Account for every firm-year the source held but the study does not use.
+
+    Three things remove rows, and they are counted separately because they
+    mean different things: an identifier that never resolved to a tradable
+    symbol, a year without the t-1 row the deltas need, and a year whose nine
+    signals were not all computable. Written to {market}_fsclean_exclusions.csv.
+    """
+    xl = pd.ExcelFile(data_dir / "processed" / WORKBOOKS[market])
+    mapping = _bbg_to_yahoo(market, data_dir)
+    scored = panel.groupby("score_year").size()
+    per_year = panel.attrs.get("per_year", pd.DataFrame())
+    incomplete = (per_year.set_index("score_year")["dropped_incomplete_signals"]
+                  if len(per_year) else pd.Series(dtype=int))
+
+    rows = []
+    for sheet in sorted(s for s in xl.sheet_names if s.isdigit()):
+        year, raw = int(sheet), xl.parse(sheet)
+        sym = raw.BBG_Ticker.map(mapping)
+        need = sym.isna()
+        if need.any():
+            sym.loc[need] = raw.loc[need, "BBG_Ticker"].map(
+                lambda b: _fallback_symbol(b, market))
+        rows.append({
+            "score_year": year,
+            "rows_in_source": len(raw),
+            "dropped_unresolved_identifier": int(sym.isna().sum()),
+            "dropped_incomplete_signals": int(incomplete.get(year, 0)),
+            "scored": int(scored.get(year, 0)),
+        })
+    d = pd.DataFrame(rows)
+    # whatever is left over had no prior-year row to difference against
+    d["dropped_no_prior_year"] = (d.rows_in_source
+                                  - d.dropped_unresolved_identifier
+                                  - d.dropped_incomplete_signals
+                                  - d.scored).clip(lower=0)
+    d.to_csv(data_dir / f"{market}_fsclean_exclusions.csv", index=False)
+
+
+def exclusion_report(market: str, data_dir: str | Path = "data",
+                     by_year: bool = False) -> pd.DataFrame:
+    """How much of the source the study discards, and for which reason."""
+    p = Path(data_dir) / f"{market.lower()}_fsclean_exclusions.csv"
+    if not p.exists():
+        load_scores(market, data_dir, refresh=True)
+    rep = pd.read_csv(p)
+    if by_year:
+        return rep.set_index("score_year")
+    total = rep.drop(columns=["score_year"]).sum()
+    total["pct_scored"] = round(100 * total.scored / total.rows_in_source, 2)
+    return total.to_frame(market.lower()).T

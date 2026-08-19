@@ -33,8 +33,9 @@ def cells(market: str, k: int, n_mc: int):
 
 One cell of the reviewer-suggested 3 x 3 x 2 grid (basket sizes 20/25/30 x
 random-sample sizes 1,000/2,000/5,000 x two markets). Signals come from the
-team-computed workbook (`data/processed/`, exact Piotroski conventions,
-financial firms removed); prices from the cached Yahoo data. Formations are
+the team's FS_clean statements, scored by this repository's own signal code
+(`fscore.signal.piotroski`, unit-tested, beginning-of-year asset scaling on
+both sides of every delta); prices from the cached Yahoo data. Formations are
 July 1 of **2012-2025** (14 chained holding years) using score year T-1 —
 one conservative timing rule for both markets, over identical calendar time
 so the two are comparable. The evaluation window ends 2025-12-31.
@@ -58,8 +59,8 @@ basket. All figures are saved at dpi = 300."""),
 ROOT = pathlib.Path.cwd().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 import numpy as np, pandas as pd, matplotlib.pyplot as plt
-from fscore.data.team_scores import (load_team_scores, sectors_from_scores,
-                                     exclusion_report)
+from fscore.data.fs_clean import exclusion_report, load_scores
+from fscore.data.team_scores import sectors_from_scores
 from fscore.grid import run_grid
 from fscore.plotting import setup_plots, save_fig
 
@@ -70,7 +71,7 @@ FIG = ROOT / "results" / "figures"
 OUT = ROOT / "results" / "grid"; OUT.mkdir(parents=True, exist_ok=True)
 TAG = "{tag}"
 
-scores = load_team_scores(MARKET, ROOT / "data")
+scores = load_scores(MARKET, ROOT / "data")   # our own signal code
 prices = pd.read_csv(ROOT / "data" / f"{{MARKET}}_prices.csv.gz", parse_dates=["date"])
 sectors = sectors_from_scores(scores)
 study = run_grid(MARKET, scores, prices, sectors, YEARS, k=K, n_mc=N_MC,
@@ -82,16 +83,22 @@ diag.round(3)"""),
 A firm-year enters the study only with a **complete nine-signal F-Score**.
 Partial scores are dropped rather than summed over whatever is available —
 an incomplete score is not a low score, and keeping them would push those
-firms towards the bottom of the ranking and into the short leg. The table
-below is the full accounting; `dropped_no_price` in the diagnostics above
-counts the further names removed for insufficient price history."""),
+firms towards the bottom of the ranking and into the short leg.
+
+Three things remove rows, counted separately because they mean different
+things: an identifier that never resolved to a tradable symbol, a year with
+no prior-year row to difference against, and a year whose nine signals were
+not all computable. `dropped_no_price` in the diagnostics above counts the
+further names removed for insufficient price history."""),
         code("""drops_total = exclusion_report(MARKET, ROOT / "data")
 drops_year = exclusion_report(MARKET, ROOT / "data", by_year=True)
 drops_total.to_csv(OUT / f"{TAG}_exclusions.csv")
-print(f"{MARKET.upper()}: {int(drops_total.dropped_incomplete_signals.iloc[0])} of "
-      f"{int(drops_total.rows.iloc[0])} firm-years dropped for incomplete signals "
-      f"({drops_total.pct_dropped_incomplete.iloc[0]:.1f}%); "
-      f"{drops_total.pct_kept.iloc[0]:.1f}% kept")
+r = drops_total.iloc[0]
+print(f"{MARKET.upper()}: {int(r.rows_in_source)} firm-years in the source -> "
+      f"{int(r.scored)} scored ({r.pct_scored:.1f}%)")
+print(f"  identifier never resolved to a tradable symbol: {int(r.dropped_unresolved_identifier)}")
+print(f"  no prior-year row to difference against:        {int(r.dropped_no_prior_year)}")
+print(f"  nine signals not all computable:                {int(r.dropped_incomplete_signals)}")
 drops_total"""),
         md("""### 1. Summary (primary measure: net-of-cost Sharpe; rf = 0)
 

@@ -5,20 +5,16 @@ What each column is, where it came from, and why it can be published.
 | Column | Source | Nature |
 |---|---|---|
 | `ticker`, `score_year`, `fiscal_year` | identifiers | not data |
-| `f_roa` … `f_dturn` (nine flags) | derived from licensed-terminal fundamentals | **irreversible**: each is one bit, the outcome of a comparison (e.g. ROA > 0). The underlying value cannot be recovered. |
+| `f_roa` … `f_dturn` (nine flags) | computed here by `fscore.signal.piotroski` from licensed-terminal statements | **irreversible**: each is one bit, the outcome of a comparison (e.g. ROA > 0). The underlying value cannot be recovered. |
 | `fscore` | sum of the nine flags | further aggregation, 0–9 |
 | `sector` | Yahoo Finance classification | not vendor data |
 
-**No continuous per-security value is exported.** Three columns that earlier
-drafts carried are excluded:
-
-- `shares_outstanding` — a raw vendor figure. Nothing reads it: the EQ_OFFER
-  flag was computed inside the source workbook from its own year-on-year
-  share columns, so the flag is unaffected by its removal.
-- `bm`, `market_cap` — ours rather than the vendor's, but still per-security
-  numbers. They are recomputed at load time from the caches that
-  `scripts/fetch_us_edgar.py` and `scripts/fetch_us_japan.py` rebuild from
-  public sources, so shipping them would add nothing but exposure.
+**No continuous per-security value is exported.** `bm` and `market_cap` are
+ours rather than the vendor's, but they are still per-security numbers, so
+they are recomputed at load time from the caches that
+`scripts/fetch_us_edgar.py` and `scripts/fetch_us_japan.py` rebuild from
+public sources; shipping them would add nothing but exposure. Raw statement
+values never leave the machine at all.
 
 What remains is identifiers plus nine bits and their sum.
 

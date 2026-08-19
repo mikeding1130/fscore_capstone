@@ -15,12 +15,12 @@ Why that distinction holds (see PROVENANCE.md for the per-column account):
   * the facts underneath are public statutory filings (10-K, 有価証券報告書)
     that any reader can recompute from, independently of any vendor.
 
-No continuous per-security value is shipped at all. `shares_outstanding` is a
-raw vendor figure and nothing reads it — the EQ_OFFER flag was computed inside
-the workbook from its own year-on-year share columns, so the flag survives its
-removal intact. `bm` and `market_cap` are ours rather than the vendor's, but
-they are still per-security numbers, so they are recomputed at load time from
-the rebuildable caches instead of travelling with the panel.
+The flags are computed by this repository's own signal code
+(`fscore.signal.piotroski`) from the team's FS_clean statements, so what ships
+is our output rather than a vendor's. No continuous per-security value is
+shipped at all: `bm` and `market_cap` are ours rather than the vendor's but
+are still per-security numbers, so they are recomputed at load time from the
+rebuildable caches instead of travelling with the panel.
 
 Run:  python scripts/export_panel.py [us|japan|both]
 Writes results/panel/{market}_fscore_panel.csv and results/panel/PROVENANCE.md
@@ -35,7 +35,8 @@ import pandas as pd
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from fscore.data.team_scores import SIGNAL_COLS, load_team_scores  # noqa: E402
+from fscore.data.fs_clean import load_scores  # noqa: E402
+from fscore.data.team_scores import SIGNAL_COLS  # noqa: E402
 
 OUT = ROOT / "results" / "panel"
 
@@ -58,20 +59,16 @@ What each column is, where it came from, and why it can be published.
 | Column | Source | Nature |
 |---|---|---|
 | `ticker`, `score_year`, `fiscal_year` | identifiers | not data |
-| `f_roa` … `f_dturn` (nine flags) | derived from licensed-terminal fundamentals | **irreversible**: each is one bit, the outcome of a comparison (e.g. ROA > 0). The underlying value cannot be recovered. |
+| `f_roa` … `f_dturn` (nine flags) | computed here by `fscore.signal.piotroski` from licensed-terminal statements | **irreversible**: each is one bit, the outcome of a comparison (e.g. ROA > 0). The underlying value cannot be recovered. |
 | `fscore` | sum of the nine flags | further aggregation, 0–9 |
 | `sector` | Yahoo Finance classification | not vendor data |
 
-**No continuous per-security value is exported.** Three columns that earlier
-drafts carried are excluded:
-
-- `shares_outstanding` — a raw vendor figure. Nothing reads it: the EQ_OFFER
-  flag was computed inside the source workbook from its own year-on-year
-  share columns, so the flag is unaffected by its removal.
-- `bm`, `market_cap` — ours rather than the vendor's, but still per-security
-  numbers. They are recomputed at load time from the caches that
-  `scripts/fetch_us_edgar.py` and `scripts/fetch_us_japan.py` rebuild from
-  public sources, so shipping them would add nothing but exposure.
+**No continuous per-security value is exported.** `bm` and `market_cap` are
+ours rather than the vendor's, but they are still per-security numbers, so
+they are recomputed at load time from the caches that
+`scripts/fetch_us_edgar.py` and `scripts/fetch_us_japan.py` rebuild from
+public sources; shipping them would add nothing but exposure. Raw statement
+values never leave the machine at all.
 
 What remains is identifiers plus nine bits and their sum.
 
@@ -107,7 +104,7 @@ EDGAR alone (`scripts/fetch_us_edgar.py`), with no vendor input of any kind.
 
 
 def export(market: str) -> pd.DataFrame:
-    panel = load_team_scores(market, ROOT / "data")
+    panel = load_scores(market, ROOT / "data")
     missing = [c for c in KEEP if c not in panel.columns]
     if missing:
         raise KeyError(f"{market}: expected columns absent: {missing}")
