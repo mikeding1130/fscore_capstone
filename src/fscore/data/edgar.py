@@ -48,6 +48,15 @@ FLOW_TAGS = {
              ("us-gaap", "CostOfGoodsAndServicesSold"),
              ("us-gaap", "CostOfGoodsSold")],
     "_gross_profit": [("us-gaap", "GrossProfit")],   # helper for cogs fallback
+    # EQ_OFFER input: cash raised by issuing equity during the year. Ordered
+    # from the most specific common-stock tag outward; option exercises and
+    # employee-plan proceeds are included because they are equity issuance in
+    # Piotroski's sense (the firm took in external equity capital).
+    "equity_issued": [("us-gaap", "ProceedsFromIssuanceOfCommonStock"),
+                      ("us-gaap", "ProceedsFromIssuanceOfCommonStockNetOfIssuanceCosts"),
+                      ("us-gaap", "ProceedsFromIssuanceOrSaleOfEquity"),
+                      ("us-gaap", "ProceedsFromStockOptionsExercised"),
+                      ("us-gaap", "ProceedsFromIssuanceOfSharesUnderIncentiveAndShareBasedCompensationPlans")],
 }
 INSTANT_TAGS = {
     "total_assets": [("us-gaap", "Assets")],
@@ -175,8 +184,8 @@ def parse_companyfacts(js: dict, ticker: str) -> pd.DataFrame:
         row = {"ticker": ticker, "total_assets": assets}
         filed = {"total_assets": filed_a}
         for f in ("net_income", "cfo", "revenue", "cogs", "_gross_profit",
-                  "current_assets", "current_liabilities", "book_value",
-                  "long_term_debt"):
+                  "equity_issued", "current_assets", "current_liabilities",
+                  "book_value", "long_term_debt"):
             v = fields[f].get(end)
             row[f] = v[0] if v else np.nan
             if v:

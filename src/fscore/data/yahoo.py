@@ -38,6 +38,11 @@ INC_FIELDS = {
 }
 CF_FIELDS = {
     "cfo": ["Operating Cash Flow", "Cash Flow From Continuing Operating Activities"],
+    # EQ_OFFER input: gross proceeds from issuing stock. "Issuance Of Capital
+    # Stock" is gross; the "Net ..." lines net buybacks against issuance and
+    # would mask an offering funded alongside a repurchase, so they are last.
+    "equity_issued": ["Issuance Of Capital Stock", "Common Stock Issuance",
+                      "Net Common Stock Issuance"],
 }
 
 BENCHMARKS = {

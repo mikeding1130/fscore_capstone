@@ -1,0 +1,38 @@
+{
+  "base": "https://api.jquants.com/v2",
+  "endpoints": {
+    "daily_bars": "/equities/bars/daily",
+    "listed_master": "/equities/master",
+    "calendar": "/markets/calendar"
+  },
+  "listed_master": {
+    "path": "/equities/master",
+    "n": 4446,
+    "fields": [
+      "CoName",
+      "CoNameEn",
+      "Code",
+      "Date",
+      "Mkt",
+      "MktNm",
+      "Mrgn",
+      "MrgnNm",
+      "ProdCat",
+      "S17",
+      "S17Nm",
+      "S33",
+      "S33Nm",
+      "ScaleCat"
+    ]
+  },
+  "price_history_back_to": 2025,
+  "delisting": {
+    "dated_master": false,
+    "oldest_master": null
+  },
+  "panel_overlap": {
+    "ours": 223,
+    "matched": 223
+  },
+  "statements": null
+}

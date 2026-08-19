@@ -1,4 +1,4 @@
-year,universe,value_set,scored,k,fscore_mean,fscore_basket_min
-2023,118,47,9,9,6.333333333333333,3
-2024,150,60,60,30,5.983333333333333,6
-2025,150,60,60,30,6.266666666666667,6
+year,universe,value_set,scored,dropped_incomplete_signals,tie_break_slots,cov_est_days,delisted_in_holding_year,k,fscore_mean,fscore_basket_min
+2023,118,47,9,115,1,733,0,9,6.444444444444445,3
+2024,150,60,60,21,2,733,0,30,6.166666666666667,6
+2025,150,60,60,23,5,733,0,30,6.266666666666667,6

@@ -9,7 +9,12 @@ Canonical schemas
 fundamentals : one row per (ticker, fiscal_year)
     columns = [ticker, fiscal_year, report_date, total_assets, net_income,
                cfo, long_term_debt, current_assets, current_liabilities,
-               shares_outstanding, revenue, cogs, book_value, market_cap]
+               shares_outstanding, equity_issued, revenue, cogs, book_value,
+               market_cap]
+
+    `equity_issued` is the cash-flow statement's proceeds from issuing common
+    (and preferred) stock — the input to the EQ_OFFER signal. It is the
+    primary measure; `shares_outstanding` is only the fallback.
 
 prices : one row per (ticker, date)
     columns = [ticker, date, adj_close, volume]
@@ -22,7 +27,8 @@ import pandas as pd
 REQUIRED_FUND_COLS = [
     "ticker", "fiscal_year", "report_date", "total_assets", "net_income",
     "cfo", "long_term_debt", "current_assets", "current_liabilities",
-    "shares_outstanding", "revenue", "cogs", "book_value", "market_cap",
+    "shares_outstanding", "equity_issued", "revenue", "cogs", "book_value",
+    "market_cap",
 ]
 
 
@@ -35,9 +41,8 @@ def load_fundamentals(market: str, path: str | None = None) -> pd.DataFrame:
     US and Japan are served from the Yahoo Finance cache written by
     `scripts/fetch_us_japan.py` (see fscore.data.yahoo for source caveats).
 
-    TODO(data-team): adapters for the emerging pair.
-      - Malaysia: source under evaluation (window 2019-12..2025-12)
-      - Vietnam: adapter over the team-maintained normalized database
+    TODO(data-team): adapter for Vietnam, over the team-maintained
+    normalized database. (Malaysia was dropped from scope.)
     """
     if market.lower() in IMPLEMENTED_MARKETS:
         from .yahoo import load_cached
@@ -96,6 +101,9 @@ def make_demo_market(n_stocks: int = 100, year: int = 2023, seed: int = 7,
             "current_assets": assets * rng.uniform(0.2, 0.6, n_stocks),
             "current_liabilities": assets * rng.uniform(0.1, 0.5, n_stocks),
             "shares_outstanding": rng.lognormal(4, 0.8, n_stocks) * 1e6,
+            # most firms raise no equity in a year; a minority does
+            "equity_issued": np.where(rng.random(n_stocks) < 0.25,
+                                      assets * rng.uniform(0.0, 0.1, n_stocks), 0.0),
             "revenue": assets * rng.uniform(0.4, 1.4, n_stocks),
             "cogs": assets * rng.uniform(0.2, 1.0, n_stocks),
             "book_value": assets * rng.uniform(0.2, 0.8, n_stocks),

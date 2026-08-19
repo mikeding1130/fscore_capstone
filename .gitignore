@@ -9,4 +9,9 @@ data/processed/
 !data/README.md
 !results/*.csv
 !results/grid/*.csv
+# Committed on purpose: the rubric requires the underlying data to be
+# verifiable, and the panel carries only identifiers and irreversible
+# one-bit flags — no continuous per-security value. See
+# results/panel/PROVENANCE.md.
+!results/panel/*.csv
 .env

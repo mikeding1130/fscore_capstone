@@ -40,7 +40,7 @@ CFG = {
         "bench": {"SPY (S&P 500)": "SPY", "VTV (US value ETF)": "VTV"},
         "bench_note": "Both benchmarks are USD, like the portfolios.",
         "ff": "us", "usd_convert": False,
-        "years": "list(range(2011, 2026))", "lag": 1, "membership": True,
+        "years": "list(range(2012, 2026))", "lag": 1, "membership": True,
         "data_note": (
             "SEC EDGAR XBRL fundamentals (FY2009 onward — XBRL was mandated "
             "2009-2011, which is why the proposal's 2000 start is not reachable "
@@ -51,10 +51,12 @@ CFG = {
             "index-inclusion look-ahead; names whose price history has "
             "vanished from Yahoo (many delistings) still drop out — the "
             "residual survivorship is documented in the README. Formations "
-            "run **July 2011 .. July 2025**, and the evaluation window is "
-            "capped at **2025-12-31** to stay inside the proposal's "
-            "2000–2025 sample (the final formation contributes a half "
-            "holding year)."),
+            "run **July 2012 .. July 2025** — the window agreed with Japan so "
+            "the two markets cover identical calendar time — and the "
+            "evaluation window is capped at **2025-12-31** (the final "
+            "formation contributes a half holding year). Covariances are "
+            "estimated on 36 months of daily returns ending the day before "
+            "formation."),
     },
     "japan": {
         "num": "04", "title": "Japan",
@@ -94,7 +96,9 @@ def full_study_cells(m: dict) -> list:
 The proposal's complete loop on **real data**: point-in-time universe →
 high-B/M value subset → 9-signal F-Score → fixed-basket selection (F-Score vs
 value / market-cap / liquidity-matched / random Monte-Carlo) → EW / GMV /
-sector-capped GMV on RMT-cleaned covariances → annual-rebalance backtest →
+sector-capped GMV on RMT-cleaned covariances, plus a dollar-neutral
+long-short book (long top-k scores, short bottom-k) where shorting is
+available → annual-rebalance backtest →
 placement in the random distribution → investable benchmarks → Fama-French
 three-factor regression.
 
@@ -113,11 +117,14 @@ ROOT = pathlib.Path.cwd().parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import numpy as np, pandas as pd, matplotlib.pyplot as plt
+from fscore.plotting import setup_plots, save_fig
 from fscore.data.yahoo import load_cached
 from fscore.pipeline import run_study
 from fscore.evaluation import (metrics, benchmark_returns, fetch_ff_factors,
                                factor_regression, to_usd)
 
+setup_plots()      # study-wide figure defaults; every saved chart is 300 dpi
+RESULTS_FIG = ROOT / "results" / "figures"
 MARKET = "{'us' if m['membership'] else 'japan'}"
 YEARS = {m['years']}
 LAG_MONTHS = {m['lag']}  # {'report_date = true 10-K filing date' if m['lag'] == 1 else 'report_date = fiscal period end (no filing dates on Yahoo)'}
@@ -136,9 +143,16 @@ continuous listing and complete, published statements; value subset = top 40%
 by B/M (~60 names); baskets of 30; 1,000 random baskets under EW (300 pushed
 through the GMV / sector-GMV pipeline)."""))
 
+    cells.append(md("""**Data discarded before any test.** A firm-year is scored
+only when all nine signals are computable from the fiscal T-1 and T-2
+statements; partial scores are dropped rather than summed over whatever is
+available (an incomplete score is not a low score). The per-formation count
+is `dropped_incomplete_signals` in the diagnostics below."""))
+
     cells.append(code("""study = run_study(MARKET, fund, prices, sectors, YEARS,
                   n_mc=1000, n_mc_opt=300, lag_months=LAG_MONTHS,
-                  membership=membership, end_cap=END_CAP, seed=42)
+                  membership=membership, end_cap=END_CAP, seed=42,
+                  detone=False)   # RMT denoise only; see section 4b
 diag = pd.DataFrame([{"year": yr.year, **yr.diagnostics} for yr in study.yearly])
 diag.set_index("year")"""))
 
@@ -155,7 +169,7 @@ for ax, yr in zip(axes.flat, study.yearly):
 for ax in axes.flat[len(study.yearly):]:
     ax.axis("off")
 fig.suptitle(f"{MARKET.upper()} — F-Score distribution within the high-B/M universe, by formation year")
-plt.tight_layout(); plt.show()
+plt.tight_layout(); save_fig(f"{MARKET}_fscore_distribution", directory=RESULTS_FIG); plt.show()
 
 pd.DataFrame({yr.year: yr.scored.fscore.describe() for yr in study.yearly}).round(2)"""))
 
@@ -171,28 +185,35 @@ bench_rets = {{name: benchmark_returns(bench, tk, start, end)
 
 nav = (1 + study.daily.fillna(0)).cumprod()
 fig, ax = plt.subplots(figsize=(10, 5))
+# solid for the F-Score variants, dashed for the controls; a strategy not
+# named here still plots, so adding one never breaks the figure
 styles = {{"fscore_EW": ("-", 2.2), "fscore_GMV": ("-", 1.4), "fscore_GMVsec": ("-", 1.4),
+          "fscore_LS": ("-", 1.4),
           "value_EW": ("--", 1.2), "mktcap_EW": ("--", 1.2), "liquidity_EW": ("--", 1.2)}}
 for s in study.daily.columns:
-    ls, lw = styles[s]
+    ls, lw = styles.get(s, ("-" if s.startswith("fscore") else "-.", 1.2))
     ax.plot(nav.index, nav[s], ls, lw=lw, label=s)
 for name, r in bench_rets.items():
     ax.plot((1 + r).cumprod(), ":", lw=1.6, label=name)
 ax.set_ylabel("growth of 1 (log)"); ax.set_yscale("log")
 ax.set_title(f"{{MARKET.upper()}} — F-Score strategies vs controls and benchmarks, "
              f"{{start:%b %Y}} – {{end:%b %Y}}")
-ax.legend(fontsize=8, ncol=2); plt.tight_layout(); plt.show()"""))
+ax.legend(fontsize=8, ncol=2); plt.tight_layout()
+save_fig(f"{{MARKET}}_nav_vs_benchmarks", directory=RESULTS_FIG); plt.show()"""))
 
-    cells.append(code("""tbl = study.summary()
+    cells.append(code("""tbl = study.summary()      # incl. turnover / cost_drag / net_*
 for name, r in bench_rets.items():
-    tbl.loc[name] = metrics(r)
-tbl.round(3)"""))
+    tbl.loc[name] = metrics(r)   # benchmarks are buy-and-hold: no turnover
+tbl[["ann_return", "ann_vol", "sharpe", "max_drawdown",
+     "turnover", "cost_drag", "net_ann_return", "net_sharpe"]].round(3)"""))
 
     cells.append(md("""### 4. Statistical control — placement in the Monte-Carlo random distribution
 
 Same universe, same basket size, same construction pipeline; the only
 difference is *which* 30 names. Percentile = share of random baskets the
-F-Score portfolio beats; p-value is one-sided."""))
+F-Score portfolio beats; the p-value is one-sided and judged at the study's
+single significance level, **5%** (`significant` column). No 1% or 10% tier
+is used, so p = 0.06 counts as not significant."""))
 
     cells.append(code("""pairs = [("EW", "fscore_EW"), ("GMV", "fscore_GMV"), ("GMVsec", "fscore_GMVsec")]
 fig, axes = plt.subplots(1, 3, figsize=(12, 3.2), sharey=False)
@@ -205,15 +226,75 @@ for ax, (how, strat) in zip(axes, pairs):
     ax.set_xlabel(f"Sharpe (chained {len(YEARS)}y)")
 axes[0].set_ylabel("random baskets")
 fig.suptitle(f"{MARKET.upper()} — F-Score basket vs random distribution, by construction")
-plt.tight_layout(); plt.show()
+plt.tight_layout(); save_fig(f"{MARKET}_mc_placement", directory=RESULTS_FIG); plt.show()
 
 placements = pd.concat({strat: study.placement(strat, how) for how, strat in pairs})
 placements.round(3)"""))
 
+    if not m["usd_convert"]:   # US only — the RMT detoning diagnostic
+        cells.append(md("""### 4b. RMT covariance: denoise only vs denoise + detone
+
+The covariance fed to the minimum-variance solve is RMT-denoised
+(Marchenko–Pastur noise band flattened). **Detoning** — additionally removing
+the dominant market eigenmode — is off by default because it leaves the
+matrix singular, so inverting it optimises residual risk only. This section
+runs the detoned variant side by side to quantify what that choice costs."""))
+
+        cells.append(code("""study_dt = run_study(MARKET, fund, prices, sectors, YEARS,
+                     n_mc=1000, n_mc_opt=300, lag_months=LAG_MONTHS,
+                     membership=membership, end_cap=END_CAP, seed=42,
+                     detone=True)
+
+def _diag(st, label):
+    yr = st.yearly[0]
+    w = yr.weights["fscore_GMV"]
+    cov = clean_rmt(holding_returns(prices, list(w.index),
+                                    formation_date(yr.year) - pd.DateOffset(years=1),
+                                    formation_date(yr.year) - pd.Timedelta(days=1))[list(w.index)],
+                    detone=(label == "denoise+detone"))
+    ev = np.linalg.eigvalsh(cov)
+    m_ = metrics(st.daily["fscore_GMV"].dropna())
+    return {"construction": label,
+            "min eigenvalue": ev.min(),
+            "condition number": ev.max() / max(ev.min(), 1e-300),
+            "max weight": w.max(),
+            "effective N": 1 / (w ** 2).sum(),
+            "predicted ann vol": np.sqrt(w.values @ cov @ w.values * 252),
+            "realised ann vol": m_["ann_vol"],
+            "ann return": m_["ann_return"],
+            "sharpe": m_["sharpe"]}
+
+from fscore.construction import clean_rmt
+from fscore.pipeline import holding_returns, formation_date
+cmp = pd.DataFrame([_diag(study, "denoise only"), _diag(study_dt, "denoise+detone")])
+cmp.set_index("construction").T"""))
+
+        cells.append(code("""rows = {}
+for label, st in [("denoise only", study), ("denoise+detone", study_dt)]:
+    for strat in ["fscore_GMV", "fscore_GMVsec"]:
+        pl = st.placement(strat, "GMV" if strat == "fscore_GMV" else "GMVsec")
+        rows[(label, strat)] = pl.loc["sharpe"]
+detone_cmp = pd.DataFrame(rows).T
+detone_cmp.round(3)"""))
+
+        cells.append(code("""fig, ax = plt.subplots(figsize=(9, 4.5))
+for label, st, ls in [("denoise only", study, "-"), ("denoise+detone", study_dt, "--")]:
+    for strat, c in [("fscore_EW", "tab:blue"), ("fscore_GMV", "tab:red")]:
+        nav_ = (1 + st.daily[strat].fillna(0)).cumprod()
+        ax.plot(nav_.index, nav_, ls, color=c, lw=1.5, label=f"{strat} ({label})")
+ax.set_yscale("log"); ax.set_ylabel("growth of 1 (log)")
+ax.set_title(f"{MARKET.upper()} — effect of RMT detoning on the GMV track record")
+ax.legend(fontsize=8); plt.tight_layout()
+save_fig("us_detone_comparison", directory=RESULTS_FIG)
+plt.show()"""))
+
     cells.append(md("""### 5. Turnover and implied trading cost
 
-One-way turnover between consecutive annual rebalances; cost drag assumes
-20 bp per side (2 x turnover x 20 bp per year)."""))
+One-way turnover per rebalance, computed on each strategy's actual weights
+(so GMV pays for weight drift, not just for name changes); cost drag =
+2 x turnover x 20 bp per side, already applied in the `net_*` columns above.
+For reference, the random control is redrawn every year and turns over
+roughly `1 - k/|universe|`, i.e. in the same range as the F-Score basket."""))
 
     cells.append(code("""to = study.turnover_table()
 to.loc["mean"] = to.mean()
@@ -235,7 +316,8 @@ series = {s: study.daily[s].dropna()
     cells.append(md("""### 6. Does alpha survive the factor exposures?
 
 Daily excess returns regressed on the Fama-French three factors (market,
-size, value) with Newey-West standard errors."""
+size, value) with Newey-West standard errors. The `alpha_significant` column
+is the verdict at the study's single level, 5%."""
                     + (" Japan portfolio returns are converted to USD to match "
                        "the USD-denominated Japan factor set." if m["usd_convert"] else "")))
 

@@ -17,9 +17,25 @@ Peer-review responses baked into the design:
     basket's D is placed within the distribution of D across random baskets.
   * Strict Piotroski cutoff (priority): an F>=8 portfolio is reported
     alongside the top-k rule (its size varies and is reported).
+  * A long-short spread portfolio (`fscore_LS`): long the top-k scores,
+    short the bottom-k, equally weighted and dollar-neutral, charged the
+    trading costs of both legs plus a stock-borrow fee. It is only run where
+    shorting is available — `fscore.markets` marks Vietnam long-only, so the
+    strategy is absent from its output rather than reported as an untradable
+    hypothetical.
+  * One significance level, fixed in advance: ALPHA = 5%. Every test — the
+    Monte-Carlo placements and the synergy test alike — is judged at p < 0.05
+    and nothing else; p = 0.06 is reported as not significant.
   * One primary measure, fixed in advance (priority): Sharpe ratio net of
     costs (20 bp per side on one-way turnover), rf = 0. Other metrics are
-    reported as secondary.
+    reported as secondary. Costs are charged per strategy on its OWN weights
+    — an optimised portfolio pays for weight drift (GMV ~0.89 one-way vs EW
+    ~0.67), a near-static control almost nothing (universe EW ~0.03) — and
+    the random control pays its own turnover, since it is redrawn from
+    scratch every year. That MC turnover (~1 - k/|universe|, ~0.67 here)
+    lands close to the F-Score basket's, so `placement(..., net=True)` and
+    the gross placement come out nearly identical; both are reported so the
+    reader can see that costs are not driving the comparison.
   * Controls include the plain long-only minimum-variance portfolio of the
     WHOLE universe and the universe equal-weight.
   * GMV covariance is denoised (Marchenko-Pastur) but NOT detoned: minimum
@@ -36,25 +52,40 @@ import numpy as np
 import pandas as pd
 
 from .construction.weights import clean_rmt, equal_weight, gmv_weights, sector_constrained_gmv
-from .evaluation.backtest import metrics, turnover, vs_random
+from .selection.baskets import rank_by_fscore, tie_break_slots
+from .evaluation.backtest import (ALPHA, metrics, returns_panel,
+                                  turnover, vs_random)
+from .markets import SHORT_BORROW_ANNUAL, allows_shorting
 
 COST_PER_SIDE = 0.0020
+# Covariance estimation window, uniform across markets and strategies: 36
+# months of daily returns ending the day before formation. Longer than the
+# holding year on purpose — with ~756 observations against 20-30 assets the
+# sample covariance is far better conditioned (q = N/T ~ 0.03 rather than
+# ~0.10), so fewer eigenvalues fall in the Marchenko-Pastur noise band and
+# the minimum-variance solve rests on more signal. The cost is slower
+# reaction to regime shifts, accepted for comparability.
+COV_MONTHS = 36
+# Minimum usable history for a name to be estimable. None = half the
+# sessions actually present in the estimation window, so the rule scales with
+# `cov_months` instead of silently emptying the universe when the window is
+# shorter than a fixed threshold (and so the early formation years, which
+# have less than 36 months of prices available, still run).
+MIN_EST_DAYS = None
+MC_TURNOVER_SAMPLE = 500   # draws whose names are kept to estimate MC turnover
 STRATEGIES = ["fscore_EW", "fscore_GMV", "fscore_GMVsec", "fscore_high_EW",
-              "value_EW", "universe_EW", "universe_GMV"]
+              "fscore_LS", "value_EW", "universe_EW", "universe_GMV"]
+LONG_SHORT = "fscore_LS"   # dropped in markets where shorting is unavailable
 
 
 def formation_date(year: int) -> pd.Timestamp:
     return pd.Timestamp(f"{year}-07-01")
 
 
-def _returns_window(prices, tickers, start, end):
-    px = (prices[prices.ticker.isin(tickers)
-                 & (prices.date >= start - pd.Timedelta(days=7))
-                 & (prices.date <= end)]
-          .pivot(index="date", columns="ticker", values="adj_close")
-          .sort_index())
-    rets = px.pct_change()
-    return rets.loc[rets.index > start].dropna(how="all")
+def _returns_window(prices, tickers, start, end, delisting_return=0.0):
+    """Delisting-safe daily returns — see `fscore.evaluation.returns_panel`."""
+    return returns_panel(prices, tickers, start, end,
+                         delisting_return=delisting_return)
 
 
 @dataclass
@@ -62,36 +93,65 @@ class GridYear:
     year: int
     universe: list
     baskets: dict
+    weights: dict                  # strategy -> pd.Series (for turnover/costs)
     daily: pd.DataFrame            # strategy columns
     mc_ew: pd.DataFrame            # n_mc random baskets, EW (fresh draws)
     mc_nonf_ew: pd.DataFrame       # random from universe minus fscore picks
     mc_gmv: pd.DataFrame           # first n_gmv random baskets under GMV
+    mc_names: list                 # sampled draws' name sets (turnover only)
     diagnostics: dict = field(default_factory=dict)
 
 
-def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed):
+def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed,
+                  allow_short: bool = False, delisting_return: float = 0.0,
+                  cov_months: int = COV_MONTHS, min_est_days: int | None = MIN_EST_DAYS):
     fd = formation_date(year)
     hold_end = min(fd + pd.DateOffset(years=1) - pd.Timedelta(days=1),
                    pd.Timestamp("2025-12-31"))
     s = scores[scores.score_year == year - 1].copy()
 
+    # covariance estimation window: `cov_months` of daily returns ending the
+    # day before formation (point-in-time)
     est = _returns_window(prices, s.ticker.tolist(),
-                          fd - pd.DateOffset(years=1), fd - pd.Timedelta(days=1))
-    hold = _returns_window(prices, s.ticker.tolist(), fd, hold_end)
+                          fd - pd.DateOffset(months=cov_months),
+                          fd - pd.Timedelta(days=1))
+    hold = _returns_window(prices, s.ticker.tolist(), fd, hold_end,
+                           delisting_return=delisting_return)
+    # Eligibility uses ONLY pre-formation data. Requiring a name to have
+    # holding-period prices would be look-ahead: at formation we cannot know
+    # whether it keeps trading, and it would drop exactly the names that
+    # delist right after formation — the losses most worth capturing.
+    need = (min_est_days if min_est_days is not None
+            else max(126, len(est) // 2))
     usable = [t for t in s.ticker
-              if t in hold.columns and t in est.columns
-              and est[t].notna().sum() >= 126]
+              if t in est.columns and est[t].notna().sum() >= need]
+    if not usable:
+        raise ValueError(
+            f"{year}: no name has >= {need} estimation sessions in the "
+            f"{cov_months}-month window (window holds {len(est)} sessions). "
+            "Extend the price cache or lower cov_months/min_est_days.")
     dropped_no_price = len(s) - len(usable)
     s = s[s.ticker.isin(usable)]
-    est, hold = est[usable], hold[usable]
+    est = est[usable]
+    n_delisted = int(hold.attrs.get("delisted", 0))
+    # names with no post-formation quote at all are carried at their last
+    # traded price (zero return), not silently excluded from the book
+    no_hold_prices = [t for t in usable if t not in hold.columns]
+    hold = hold.reindex(columns=usable).fillna(0.0)
 
-    s = s.sort_values(["fscore", "bm"], ascending=False, na_position="last")
+    # Ties on the integer F-Score are broken AT RANDOM (seeded per formation
+    # year), not by B/M: ~a third of the basket sits on the cut-off score, so
+    # a B/M tie-break would let the value factor choose a third of the
+    # "F-Score" basket — the very thing the value control tests against.
+    n_tie_slots = tie_break_slots(s, k)
+    s = rank_by_fscore(s, seed=seed + year)
     value_pool = s.dropna(subset=["bm"]).sort_values("bm", ascending=False)
     # B/M coverage starts only when the fundamentals cache does (US FY2009+,
     # Japan FY2021+): earlier years fall back to the universe and are flagged
     value_fallback = len(value_pool) < max(5, k // 4)
     baskets = {
         "fscore": s.head(k).ticker.tolist(),
+        "fscore_short": s.tail(k).ticker.tolist(),   # lowest scores (short leg)
         "fscore_high": s[s.fscore >= 8].ticker.tolist(),
         "value": (list(usable) if value_fallback
                   else value_pool.head(k).ticker.tolist()),
@@ -110,19 +170,39 @@ def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed):
         return gmv_weights(cov_for(cols), list(cols))
 
     def port(w: pd.Series) -> pd.Series:
-        ww = w / w.sum()
-        return (hold[list(w.index)].fillna(0.0) * ww).sum(axis=1)
+        # long-only books are renormalised to 100%; a dollar-neutral
+        # long-short book sums to 0 and is already at its intended exposure
+        ww = w / w.sum() if abs(w.sum()) > 1e-9 else w
+        return (hold[list(ww.index)].fillna(0.0) * ww).sum(axis=1)
 
+    # weights are kept per strategy so trading costs are charged on each
+    # strategy's OWN rebalancing, using its actual weights (a GMV portfolio
+    # trades on weight drift as well as on name changes)
+    weights = {
+        "fscore_EW": equal_weight(baskets["fscore"]),
+        "fscore_GMV": w_gmv(baskets["fscore"]),
+        "fscore_GMVsec": sector_constrained_gmv(
+            cov_for(tuple(baskets["fscore"])), baskets["fscore"], sectors),
+        "fscore_high_EW": (equal_weight(baskets["fscore_high"])
+                           if baskets["fscore_high"] else pd.Series(dtype=float)),
+        "value_EW": equal_weight(baskets["value"]),
+        "universe_EW": equal_weight(baskets["universe"]),
+        "universe_GMV": w_gmv(baskets["universe"]),
+    }
+    if allow_short:
+        # Piotroski's spread portfolio: long the top-k scores, short the
+        # bottom-k, equally weighted, dollar-neutral (+100% / -100%, gross 2).
+        # Names in both legs would cancel; the two legs are disjoint by
+        # construction unless the universe is smaller than 2k.
+        longs, shorts = baskets["fscore"], [t for t in baskets["fscore_short"]
+                                            if t not in set(baskets["fscore"])]
+        weights[LONG_SHORT] = pd.concat([
+            pd.Series(1.0 / len(longs), index=longs),
+            pd.Series(-1.0 / len(shorts), index=shorts),
+        ]) if shorts else pd.Series(dtype=float)
     daily = pd.DataFrame({
-        "fscore_EW": port(equal_weight(baskets["fscore"])),
-        "fscore_GMV": port(w_gmv(baskets["fscore"])),
-        "fscore_GMVsec": port(sector_constrained_gmv(
-            cov_for(tuple(baskets["fscore"])), baskets["fscore"], sectors)),
-        "fscore_high_EW": port(equal_weight(baskets["fscore_high"]))
-        if baskets["fscore_high"] else pd.Series(0.0, index=hold.index),
-        "value_EW": port(equal_weight(baskets["value"])),
-        "universe_EW": port(equal_weight(baskets["universe"])),
-        "universe_GMV": port(w_gmv(baskets["universe"])),
+        name: (port(w) if len(w) else pd.Series(0.0, index=hold.index))
+        for name, w in weights.items()
     })
 
     # ---- Monte-Carlo controls (fresh draws every year), vectorised EW ----
@@ -153,6 +233,10 @@ def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed):
         gmv_cols[i] = port(w_gmv(b))
     mc_gmv = pd.DataFrame(gmv_cols)
 
+    # names behind the first draws, kept so the random control's own turnover
+    # (it is redrawn from scratch every year) can be charged the same costs
+    mc_names = [frozenset(uni[j] for j in row) for row in idx[:MC_TURNOVER_SAMPLE]]
+
     overlap = (np.isin(idx, [col_ix[t] for t in baskets["fscore"]])
                .sum(axis=1).mean() / k)
     diag = {
@@ -163,10 +247,20 @@ def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed):
         "n_fscore_high": len(baskets["fscore_high"]),
         "fscore_mean": float(s.fscore.mean()),
         "fscore_basket_min": float(s.head(k).fscore.min()),
+        # slots filled by the random tie-break rather than by score rank
+        "tie_break_slots": n_tie_slots,
         "overlap_random_vs_fscore": float(overlap),
         "overlap_expected": k / len(usable),
+        "cov_est_days": int(est[usable].notna().sum().median()),
+        "cov_min_est_days": int(need),
+        "delisted_in_holding_year": n_delisted,
+        "no_price_after_formation": len(no_hold_prices),
+        "long_short_run": bool(allow_short and len(weights.get(LONG_SHORT, []))),
+        "short_leg_max_fscore": (float(s.tail(k).fscore.max())
+                                 if allow_short else np.nan),
     }
-    return GridYear(year, usable, baskets, daily, mc_ew, mc_nonf, mc_gmv, diag)
+    return GridYear(year, usable, baskets, weights, daily, mc_ew, mc_nonf,
+                    mc_gmv, mc_names, diag)
 
 
 @dataclass
@@ -181,33 +275,78 @@ class GridStudy:
     mc_nonf_ew: pd.DataFrame
     mc_gmv: pd.DataFrame
 
-    # ------------------------------------------------------------------
-    def _net(self, name, m):
-        tos = [turnover(equal_weight(a.baskets["fscore"]),
-                        equal_weight(b.baskets["fscore"]))
-               for a, b in zip(self.yearly, self.yearly[1:])] or [0.0]
-        drag = 2 * float(np.mean(tos)) * COST_PER_SIDE
-        m["net_ann_return"] = m["ann_return"] - drag
-        m["net_sharpe"] = (m["net_ann_return"]) / m["ann_vol"] if m["ann_vol"] else np.nan
-        return m
+    # ---------------------------- trading costs ----------------------------
+    def strategy_turnover(self, name: str) -> float:
+        """Mean one-way turnover between consecutive formations, computed on
+        each strategy's OWN actual weights (so an optimised portfolio is
+        charged for weight drift, and a near-static control is not)."""
+        tos = [turnover(a.weights[name], b.weights[name])
+               for a, b in zip(self.yearly, self.yearly[1:])
+               if len(a.weights[name]) and len(b.weights[name])]
+        return float(np.mean(tos)) if tos else 0.0
 
+    def mc_turnover(self) -> float:
+        """Mean one-way turnover of a random basket. The control is redrawn
+        from scratch every year, so it trades far more than a persistent
+        screen — charging costs to the strategy but not to the control would
+        flatter the strategy."""
+        tos = []
+        for a, b in zip(self.yearly, self.yearly[1:]):
+            for A, B in zip(a.mc_names, b.mc_names):
+                tos.append(1.0 - len(A & B) / len(A))
+        return float(np.mean(tos)) if tos else 0.0
+
+    def cost_drag(self, name: str | None = None, mc: bool = False) -> float:
+        """Annual cost drag = 2 x one-way turnover x cost per side, plus the
+        stock-borrow fee on the short leg's notional for a long-short book."""
+        if mc:
+            return 2 * self.mc_turnover() * COST_PER_SIDE
+        drag = 2 * self.strategy_turnover(name) * COST_PER_SIDE
+        if name == LONG_SHORT:
+            shorts = [float(-w[w < 0].sum()) for y in self.yearly
+                      for w in [y.weights.get(name, pd.Series(dtype=float))]
+                      if len(w)]
+            drag += SHORT_BORROW_ANNUAL * (float(np.mean(shorts)) if shorts else 0.0)
+        return drag
+
+    @staticmethod
+    def _apply_drag(m: dict, drag: float, stat: str) -> float:
+        if stat == "ann_return":
+            return m["ann_return"] - drag
+        if stat == "sharpe":
+            return ((m["ann_return"] - drag) / m["ann_vol"]
+                    if m["ann_vol"] else np.nan)
+        return m.get(stat, np.nan)      # vol / drawdown unaffected by the drag
+
+    # ------------------------------ reporting ------------------------------
     def summary(self) -> pd.DataFrame:
         rows = {}
-        for sName in self.daily.columns:
-            m = metrics(self.daily[sName].dropna())
-            rows[sName] = self._net(sName, m)
+        for name in self.daily.columns:
+            m = metrics(self.daily[name].dropna())
+            drag = self.cost_drag(name)
+            m["turnover"] = self.strategy_turnover(name)
+            m["cost_drag"] = drag
+            m["net_ann_return"] = self._apply_drag(m, drag, "ann_return")
+            m["net_sharpe"] = self._apply_drag(m, drag, "sharpe")
+            rows[name] = m
         return pd.DataFrame(rows).T
 
-    def mc_metric(self, frame, stat="sharpe") -> pd.Series:
-        return pd.Series({i: metrics(frame[i].dropna()).get(stat, np.nan)
+    def mc_metric(self, frame, stat="sharpe", net=False) -> pd.Series:
+        drag = self.cost_drag(mc=True) if net else 0.0
+        return pd.Series({i: self._apply_drag(metrics(frame[i].dropna()), drag, stat)
                           for i in frame.columns})
 
-    def placement(self, strategy="fscore_EW", pool="mc_ew",
-                  stat="sharpe") -> dict:
-        dist = self.mc_metric(getattr(self, pool), stat)
-        val = metrics(self.daily[strategy].dropna())[stat]
-        out = vs_random(val, dist.tolist())
+    def placement(self, strategy="fscore_EW", pool="mc_ew", stat="sharpe",
+                  net=False) -> dict:
+        """Place a strategy inside the random distribution. With net=True both
+        sides are charged their own trading costs."""
+        dist = self.mc_metric(getattr(self, pool), stat, net=net)
+        m = metrics(self.daily[strategy].dropna())
+        val = self._apply_drag(m, self.cost_drag(strategy) if net else 0.0, stat)
+        higher_is_better = stat != "ann_vol"
+        out = vs_random(val, dist.tolist(), higher_is_better=higher_is_better)
         out["fscore"] = val
+        out["basis"] = "net" if net else "gross"
         return out
 
     def synergy(self) -> dict:
@@ -233,9 +372,20 @@ class GridStudy:
 
 
 def run_grid(market, scores, prices, sectors, years, *, k, n_mc,
-             n_gmv=300, seed=42) -> GridStudy:
+             n_gmv=300, seed=42, allow_short: bool | None = None,
+             delisting_return: float = 0.0, cov_months: int = COV_MONTHS,
+             min_est_days: int | None = MIN_EST_DAYS) -> GridStudy:
+    """Run the grid for one market. The long-short strategy is included only
+    where shorting is actually available (see `fscore.markets`): Vietnam and
+    Malaysia run long-only, so `fscore_LS` is absent from their output rather
+    than reported as an untradable hypothetical."""
+    if allow_short is None:
+        allow_short = allows_shorting(market)
     yearly = [run_grid_year(scores, prices, sectors, y, k=k, n_mc=n_mc,
-                            n_gmv=n_gmv, seed=seed) for y in years]
+                            n_gmv=n_gmv, seed=seed, allow_short=allow_short,
+                            delisting_return=delisting_return,
+                            cov_months=cov_months, min_est_days=min_est_days)
+              for y in years]
     cat = lambda attr: pd.concat([getattr(y, attr) for y in yearly]).sort_index()
     return GridStudy(market, k, n_mc, list(years), yearly,
                      cat("daily"), cat("mc_ew"), cat("mc_nonf_ew"), cat("mc_gmv"))
