@@ -136,15 +136,17 @@ def run_year(fundamentals, prices, sectors, year, *, k=BASKET_SIZE,
              universe_size=150, value_quantile=0.4, n_mc=1000,
              n_mc_opt=300, lag_months=5, seed=42,
              membership: dict[int, set[str]] | None = None,
-             end_cap: pd.Timestamp | None = None,
+             end_cap: pd.Timestamp | None = None,   # see note in run_study
              detone: bool = False, allow_short: bool = False,
              delisting_return: float = 0.0,
              cov_months: int = COV_MONTHS) -> YearResult:
     fd = formation_date(year)
     hold_end = fd + pd.DateOffset(years=1) - pd.Timedelta(days=1)
     if end_cap is not None:
-        # evaluation window cap (e.g. the proposal's sample end): the final
-        # formation may contribute a partial holding period
+        # A cap truncates the last holding year, mixing a partial window in
+        # with complete ones. The study instead ends at the last formation
+        # whose full year finishes inside the sample, so this is left unset;
+        # it stays available for one-off diagnostics.
         hold_end = min(hold_end, pd.Timestamp(end_cap))
 
     snap = pit_snapshot(fundamentals, year, lag_months=lag_months)
@@ -283,20 +285,45 @@ class StudyResult:
             drag += SHORT_BORROW_ANNUAL * (float(np.mean(shorts)) if shorts else 0.0)
         return drag
 
+    def effective_n(self, strategy: str) -> float:
+        """Mean effective number of holdings, 1 / sum(w^2), across formations.
+
+        Basket size k is an upper bound, not a headcount: an optimised or
+        constrained book concentrates, so its effective N can sit well below
+        the k names nominally held. Reported so the two are not conflated.
+        """
+        vals = []
+        for y in self.yearly:
+            w = y.weights.get(strategy)
+            if w is None or not len(w):
+                continue
+            ww = w.abs()
+            ww = ww / ww.sum()
+            vals.append(1.0 / float((ww ** 2).sum()))
+        return float(np.mean(vals)) if vals else np.nan
+
     def summary(self, rf_annual: float = 0.0,
                 cost_per_side: float = 0.0020) -> pd.DataFrame:
-        """Gross metrics plus turnover and net-of-cost return/Sharpe."""
+        """Gross performance first — the cross-country convention — then
+        concentration, turnover, and the net-of-cost sensitivity."""
         rows = {}
         for s in self.daily.columns:
             m = metrics(self.daily[s].dropna(), rf_annual)
             drag = self.cost_drag(s, cost_per_side)
+            w0 = self.yearly[0].weights.get(s)
+            m["nominal_k"] = float(len(w0)) if w0 is not None else np.nan
+            m["effective_n"] = self.effective_n(s)
             m["turnover"] = self.strategy_turnover(s)
             m["cost_drag"] = drag
             m["net_ann_return"] = m["ann_return"] - drag
             m["net_sharpe"] = ((m["net_ann_return"] - rf_annual) / m["ann_vol"]
                                if m["ann_vol"] else np.nan)
             rows[s] = m
-        return pd.DataFrame(rows).T
+        cols = ["ann_return", "ann_vol", "sharpe", "max_drawdown",
+                "nominal_k", "effective_n", "turnover",
+                "cost_drag", "net_ann_return", "net_sharpe"]
+        out = pd.DataFrame(rows).T
+        return out[[c for c in cols if c in out.columns]]
 
     def mc_summary(self, construction: str = "EW") -> pd.DataFrame:
         mc = self.mc_daily[construction]

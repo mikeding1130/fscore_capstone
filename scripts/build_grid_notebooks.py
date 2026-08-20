@@ -16,12 +16,12 @@ GRID_DIR = ROOT / "notebooks" / "grid"
 
 KS = [20, 25, 30]
 MCS = [1000, 2000, 5000]
-# Study window agreed for both markets: formations July 2012 .. July 2025
-# (14 chained holding years), evaluation capped at 2025-12-31. The panel is
-# scoreable from 2002, but the sample is held to the common window so the
-# two markets are compared over identical calendar time.
-MARKETS = {"us": ("United States", "list(range(2012, 2026))"),
-           "japan": ("Japan", "list(range(2012, 2026))")}
+# Formations July 2012 .. July 2024 — thirteen chained holding years, every
+# one of them complete. July 2024 is the last formation whose full year ends
+# inside the sample (June 2025); adding July 2025 would contribute a half
+# year and mix an incomplete window in with the complete ones.
+MARKETS = {"us": ("United States", "list(range(2012, 2025))"),
+           "japan": ("Japan", "list(range(2012, 2025))")}
 
 
 def cells(market: str, k: int, n_mc: int):
@@ -32,13 +32,14 @@ def cells(market: str, k: int, n_mc: int):
         md(f"""# {title} — F-Score grid study: basket k = {k}, random draws = {n_mc}
 
 One cell of the reviewer-suggested 3 x 3 x 2 grid (basket sizes 20/25/30 x
-random-sample sizes 1,000/2,000/5,000 x two markets). Signals come from the
+random-sample sizes 1,000/2,000/5,000 x two markets). Signals come from
 the team's FS_clean statements, scored by this repository's own signal code
 (`fscore.signal.piotroski`, unit-tested, beginning-of-year asset scaling on
 both sides of every delta); prices from the cached Yahoo data. Formations are
-July 1 of **2012-2025** (14 chained holding years) using score year T-1 —
-one conservative timing rule for both markets, over identical calendar time
-so the two are comparable. The evaluation window ends 2025-12-31.
+July 1 of **2012-2024** (13 chained holding years, each a full twelve
+months) using score year T-1 — one conservative timing rule for both markets,
+over identical calendar time so the two are comparable. July 2024 is the last
+formation whose complete year finishes inside the sample.
 Covariances are estimated on 36 months of daily returns ending the day
 before formation. Note the panel resolves to *currently listed* symbols, so
 the universe is survivorship-tilted — disclosed as a data limitation. The value control falls back to the universe
@@ -52,9 +53,9 @@ book (long top-k scores, short bottom-k, charged both legs' trading costs
 plus a stock-borrow fee) wherever shorting is available — Vietnam runs
 long-only, so `fscore_LS` is simply absent there; denoised
 (not detoned) GMV;
-primary measure fixed in advance = net-of-cost Sharpe (20 bp per side,
-rf = 0); and the synergy test D = Sharpe(GMV) − Sharpe(EW) computed per
-basket. All figures are saved at dpi = 300."""),
+primary measure fixed in advance = the GROSS Sharpe ratio (rf = 0), with
+turnover and net-of-cost figures reported separately; and the synergy test
+D = Sharpe(GMV) − Sharpe(EW) computed per basket. All figures are saved at dpi = 300."""),
         code(f"""import sys, pathlib
 ROOT = pathlib.Path.cwd().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -100,17 +101,39 @@ print(f"  identifier never resolved to a tradable symbol: {int(r.dropped_unresol
 print(f"  no prior-year row to difference against:        {int(r.dropped_no_prior_year)}")
 print(f"  nine signals not all computable:                {int(r.dropped_incomplete_signals)}")
 drops_total"""),
-        md("""### 1. Summary (primary measure: net-of-cost Sharpe; rf = 0)
+        code("""fig, ax = plt.subplots(figsize=(9, 3.4))
+b = drops_year.loc[[y - 1 for y in YEARS]]
+ax.bar(b.index, b.scored, label="scored", color="tab:blue")
+ax.bar(b.index, b.dropped_no_prior_year, bottom=b.scored,
+       label="no prior-year row", color="tab:orange")
+ax.bar(b.index, b.dropped_unresolved_identifier,
+       bottom=b.scored + b.dropped_no_prior_year,
+       label="identifier unresolved", color="tab:red")
+ax.bar(b.index, b.dropped_incomplete_signals,
+       bottom=b.scored + b.dropped_no_prior_year + b.dropped_unresolved_identifier,
+       label="incomplete nine signals", color="tab:grey")
+ax.set_xlabel("score year"); ax.set_ylabel("firm-years")
+ax.set_title(f"{MARKET.upper()}: what the source holds, and what is scored")
+ax.legend(fontsize=7, ncol=4)
+plt.tight_layout()
+save_fig(f"{TAG}_exclusions", directory=FIG)
+plt.show()"""),
+        md("""### 1. Summary (primary measure: **gross** Sharpe; rf = 0)
 
-Costs are 20 bp per side charged on each strategy's **own** one-way turnover,
-computed from its actual weights — so the optimised portfolios pay for weight
-drift and the near-static universe control pays almost nothing. The
-long-short book (`fscore_LS`, present only where shorting is available) pays
-both legs plus a 100 bp annual stock-borrow fee on its short notional."""),
+Gross performance is the cross-country convention — cost models differ by
+market and would otherwise confound the comparison. Turnover is reported
+beside it, and the net-of-cost columns follow as a sensitivity.
+
+`nominal_k` is the basket size; `effective_n` is 1/Σw², the number of
+holdings the weights actually amount to. They are not the same quantity: an
+optimised or sector-capped book concentrates, so its effective N sits below
+the names nominally held."""),
         code("""summary = study.summary()
 summary[["ann_return", "ann_vol", "sharpe", "max_drawdown",
-         "turnover", "cost_drag", "net_ann_return", "net_sharpe"]].round(3)"""),
-        md("### 2. Yearly returns (July–June holding years; final year ends Dec 2025)"),
+         "nominal_k", "effective_n"]].round(3)"""),
+        md("""#### Turnover and the net-of-cost sensitivity (reported separately)"""),
+        code("""summary[["turnover", "cost_drag", "net_ann_return", "net_sharpe"]].round(4)"""),
+        md("### 2. Yearly returns (each formation held July–June, a full twelve months)"),
         code("""yearly = study.yearly_returns()
 (yearly * 100).round(1)"""),
         md("""### 3. Placement vs the random distributions

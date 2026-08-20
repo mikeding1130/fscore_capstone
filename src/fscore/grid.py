@@ -26,9 +26,11 @@ Peer-review responses baked into the design:
   * One significance level, fixed in advance: ALPHA = 5%. Every test — the
     Monte-Carlo placements and the synergy test alike — is judged at p < 0.05
     and nothing else; p = 0.06 is reported as not significant.
-  * One primary measure, fixed in advance (priority): Sharpe ratio net of
-    costs (20 bp per side on one-way turnover), rf = 0. Other metrics are
-    reported as secondary. Costs are charged per strategy on its OWN weights
+  * One primary measure, fixed in advance: the GROSS Sharpe ratio (rf = 0).
+    Gross is the cross-country convention, since cost models differ by market
+    and would otherwise confound the comparison; turnover is reported beside
+    it, and net-of-cost figures follow as a sensitivity rather than replacing
+    the headline. Costs are charged per strategy on its OWN weights
     — an optimised portfolio pays for weight drift (GMV ~0.89 one-way vs EW
     ~0.67), a near-static control almost nothing (universe EW ~0.03) — and
     the random control pays its own turnover, since it is redrawn from
@@ -106,8 +108,11 @@ def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed,
                   allow_short: bool = False, delisting_return: float = 0.0,
                   cov_months: int = COV_MONTHS, min_est_days: int | None = MIN_EST_DAYS):
     fd = formation_date(year)
-    hold_end = min(fd + pd.DateOffset(years=1) - pd.Timedelta(days=1),
-                   pd.Timestamp("2025-12-31"))
+    # Every formation is held for a FULL year. Truncating the last one at the
+    # sample end would mix a half-year window in with complete ones, so the
+    # final formation is chosen to be one whose year finishes inside the
+    # sample instead (July 2024 -> June 2025).
+    hold_end = fd + pd.DateOffset(years=1) - pd.Timedelta(days=1)
     s = scores[scores.score_year == year - 1].copy()
 
     # covariance estimation window: `cov_months` of daily returns ending the
@@ -319,17 +324,43 @@ class GridStudy:
         return m.get(stat, np.nan)      # vol / drawdown unaffected by the drag
 
     # ------------------------------ reporting ------------------------------
+    def effective_n(self, name: str) -> float:
+        """Mean effective number of holdings, 1 / sum(w^2), across formations.
+
+        The basket size k is an upper bound, not a headcount: a constrained
+        or optimised book concentrates, so its effective N can sit well below
+        k even though k names are nominally held. Reported so the two are
+        never read as the same quantity.
+        """
+        vals = []
+        for y in self.yearly:
+            w = y.weights.get(name)
+            if w is None or not len(w):
+                continue
+            ww = w.abs()
+            ww = ww / ww.sum()
+            vals.append(1.0 / float((ww ** 2).sum()))
+        return float(np.mean(vals)) if vals else np.nan
+
     def summary(self) -> pd.DataFrame:
+        """Gross performance is the headline convention; turnover and the
+        net-of-cost columns follow it rather than replacing it."""
         rows = {}
         for name in self.daily.columns:
             m = metrics(self.daily[name].dropna())
             drag = self.cost_drag(name)
+            m["nominal_k"] = float(len(self.yearly[0].weights.get(name, [])))
+            m["effective_n"] = self.effective_n(name)
             m["turnover"] = self.strategy_turnover(name)
             m["cost_drag"] = drag
             m["net_ann_return"] = self._apply_drag(m, drag, "ann_return")
             m["net_sharpe"] = self._apply_drag(m, drag, "sharpe")
             rows[name] = m
-        return pd.DataFrame(rows).T
+        cols = ["ann_return", "ann_vol", "sharpe", "max_drawdown",   # gross first
+                "nominal_k", "effective_n", "turnover",
+                "cost_drag", "net_ann_return", "net_sharpe"]
+        out = pd.DataFrame(rows).T
+        return out[[c for c in cols if c in out.columns]]
 
     def mc_metric(self, frame, stat="sharpe", net=False) -> pd.Series:
         drag = self.cost_drag(mc=True) if net else 0.0
