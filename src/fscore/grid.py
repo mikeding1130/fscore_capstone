@@ -95,7 +95,8 @@ class GridYear:
     year: int
     universe: list
     baskets: dict
-    weights: dict                  # strategy -> pd.Series (for turnover/costs)
+    weights: dict                  # strategy -> target weights at formation
+    weights_end: dict              # strategy -> weights after a year of drift
     daily: pd.DataFrame            # strategy columns
     mc_ew: pd.DataFrame            # n_mc random baskets, EW (fresh draws)
     mc_nonf_ew: pd.DataFrame       # random from universe minus fscore picks
@@ -174,11 +175,38 @@ def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed,
         cols = tuple(basket)
         return gmv_weights(cov_for(cols), list(cols))
 
-    def port(w: pd.Series) -> pd.Series:
-        # long-only books are renormalised to 100%; a dollar-neutral
-        # long-short book sums to 0 and is already at its intended exposure
-        ww = w / w.sum() if abs(w.sum()) > 1e-9 else w
-        return (hold[list(ww.index)].fillna(0.0) * ww).sum(axis=1)
+    def _leg_path(w: pd.Series) -> tuple[pd.Series, pd.Series]:
+        """Buy-and-hold value path of one long book, and its drifted weights.
+
+        Rebalancing is ANNUAL: the book is bought at formation and left to
+        drift for twelve months. Multiplying daily returns by a fixed weight
+        vector would instead rebalance back to target every single day, which
+        is neither the stated design nor what the turnover figure prices.
+        """
+        cols = list(w.index)
+        ww = w / w.sum()
+        growth = (1.0 + hold[cols].fillna(0.0)).cumprod()
+        value = (growth * ww).sum(axis=1)
+        end = ww * growth.iloc[-1]
+        return value, end / end.sum()
+
+    def port(w: pd.Series) -> tuple[pd.Series, pd.Series]:
+        """Daily returns of the held book, plus the weights it drifts to by
+        the end of the holding year (what the next rebalance trades away
+        from)."""
+        if abs(w.sum()) > 1e-9:                       # long-only
+            value, end = _leg_path(w)
+            r = value.pct_change()
+            r.iloc[0] = value.iloc[0] - 1.0
+            return r, end
+        # dollar-neutral: each leg drifts on its own, and the spread return is
+        # the difference of the two buy-and-hold legs
+        lv, le = _leg_path(w[w > 0])
+        sv, se = _leg_path(-w[w < 0])
+        rl, rs = lv.pct_change(), sv.pct_change()
+        rl.iloc[0], rs.iloc[0] = lv.iloc[0] - 1.0, sv.iloc[0] - 1.0
+        end = pd.Series({**le.to_dict(), **(-se).to_dict()})
+        return rl - rs, end
 
     # weights are kept per strategy so trading costs are charged on each
     # strategy's OWN rebalancing, using its actual weights (a GMV portfolio
@@ -205,10 +233,14 @@ def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed,
             pd.Series(1.0 / len(longs), index=longs),
             pd.Series(-1.0 / len(shorts), index=shorts),
         ]) if shorts else pd.Series(dtype=float)
-    daily = pd.DataFrame({
-        name: (port(w) if len(w) else pd.Series(0.0, index=hold.index))
-        for name, w in weights.items()
-    })
+    daily_cols, weights_end = {}, {}
+    for name, w in weights.items():
+        if len(w):
+            daily_cols[name], weights_end[name] = port(w)
+        else:
+            daily_cols[name] = pd.Series(0.0, index=hold.index)
+            weights_end[name] = pd.Series(dtype=float)
+    daily = pd.DataFrame(daily_cols)
 
     # ---- Monte-Carlo controls (fresh draws every year), vectorised EW ----
     rng = np.random.default_rng(seed + year)
@@ -216,13 +248,18 @@ def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed,
     H = hold.fillna(0.0).to_numpy()
     col_ix = {t: i for i, t in enumerate(usable)}
 
+    G = np.cumprod(1.0 + H, axis=0)      # per-name growth, for buy-and-hold
+
     def mc_ew_frame(pool: np.ndarray, draws: int) -> tuple[pd.DataFrame, np.ndarray]:
         idx = np.stack([rng.choice(len(pool), size=k, replace=False)
                         for _ in range(draws)])
         W = np.zeros((draws, len(usable)))
         for i in range(draws):
             W[i, [col_ix[pool[j]] for j in idx[i]]] = 1.0 / k
-        return pd.DataFrame(H @ W.T, index=hold.index), idx
+        # value paths of buy-and-hold books, then daily returns from them
+        V = G @ W.T
+        R = np.vstack([V[0] - 1.0, V[1:] / V[:-1] - 1.0])
+        return pd.DataFrame(R, index=hold.index), idx
 
     mc_ew, idx = mc_ew_frame(uni, n_mc)
     pool_nonf = np.array([t for t in usable if t not in set(baskets["fscore"])])
@@ -235,7 +272,7 @@ def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed,
     gmv_cols = {}
     for i in range(min(n_gmv, n_mc)):
         b = [uni[j] for j in idx[i]]
-        gmv_cols[i] = port(w_gmv(b))
+        gmv_cols[i] = port(w_gmv(b))[0]
     mc_gmv = pd.DataFrame(gmv_cols)
 
     # names behind the first draws, kept so the random control's own turnover
@@ -264,8 +301,8 @@ def run_grid_year(scores, prices, sectors, year, *, k, n_mc, n_gmv, seed,
         "short_leg_max_fscore": (float(s.tail(k).fscore.max())
                                  if allow_short else np.nan),
     }
-    return GridYear(year, usable, baskets, weights, daily, mc_ew, mc_nonf,
-                    mc_gmv, mc_names, diag)
+    return GridYear(year, usable, baskets, weights, weights_end, daily,
+                    mc_ew, mc_nonf, mc_gmv, mc_names, diag)
 
 
 @dataclass
@@ -282,12 +319,17 @@ class GridStudy:
 
     # ---------------------------- trading costs ----------------------------
     def strategy_turnover(self, name: str) -> float:
-        """Mean one-way turnover between consecutive formations, computed on
-        each strategy's OWN actual weights (so an optimised portfolio is
-        charged for weight drift, and a near-static control is not)."""
-        tos = [turnover(a.weights[name], b.weights[name])
+        """Mean one-way turnover at each annual rebalance.
+
+        Measured from the weights the old book has **drifted to** by the end
+        of its holding year, not from last year's target: the drifted book is
+        what actually has to be traded away from, so this matches the annual
+        rebalance the return series assumes. Comparing two target vectors
+        would price trades that were never made.
+        """
+        tos = [turnover(a.weights_end[name], b.weights[name])
                for a, b in zip(self.yearly, self.yearly[1:])
-               if len(a.weights[name]) and len(b.weights[name])]
+               if len(a.weights_end.get(name, [])) and len(b.weights[name])]
         return float(np.mean(tos)) if tos else 0.0
 
     def mc_turnover(self) -> float:

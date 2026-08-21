@@ -86,7 +86,9 @@ def test_costs_are_charged_per_strategy_not_uniformly():
     def yr(fs_names, static_names):
         w = {"fscore_EW": pd.Series(1 / 3, index=fs_names),
              "universe_EW": pd.Series(1 / 3, index=static_names)}
-        return SimpleNamespace(weights=w, mc_names=[frozenset(fs_names)])
+        # no drift in this fixture, so the book ends where it started
+        return SimpleNamespace(weights=w, weights_end=dict(w),
+                               mc_names=[frozenset(fs_names)])
 
     st = GridStudy("t", 3, 10, [1, 2], [yr(["A", "B", "C"], ["X", "Y", "Z"]),
                                         yr(["A", "B", "D"], ["X", "Y", "Z"])],
@@ -164,6 +166,41 @@ def test_price_gaps_do_not_swallow_returns():
     r = returns_panel(px, ["GAPPY"], dates[0], dates[-1])
     cum = float((1 + r.fillna(0)).prod().iloc[0] - 1)
     assert abs(cum - 0.11) < 1e-9                 # 100 -> 111, nothing lost
+
+
+def test_annual_rebalance_is_buy_and_hold_and_turnover_matches():
+    """The book is bought at formation and left to drift for the year, and
+    the turnover charged at the next rebalance is measured from where it
+    drifted to — the two must describe the same strategy.
+
+    Applying a fixed weight vector to daily returns instead would rebalance
+    daily, which for two names moving apart earns a different (here lower)
+    return than holding them.
+    """
+    # two sessions of dispersion: A gains 50% twice, B loses 50% twice.
+    # One session alone would not separate the two schemes — the difference
+    # is a compounding effect, so the case needs at least two.
+    r = pd.DataFrame({"A": [0.5, 0.5], "B": [-0.5, -0.5]})
+    w = pd.Series({"A": 0.5, "B": 0.5})
+
+    growth = (1 + r).cumprod()                       # A -> 2.25, B -> 0.25
+    value = (growth * w).sum(axis=1)
+    buy_and_hold = float(value.iloc[-1] - 1)         # 0.5*2.25 + 0.5*0.25 - 1
+    daily_rebalanced = float((1 + (r * w).sum(axis=1)).prod() - 1)
+
+    assert abs(buy_and_hold - 0.25) < 1e-12
+    assert abs(daily_rebalanced) < 1e-12             # +50/-50 nets to zero daily
+    assert buy_and_hold > daily_rebalanced           # the two are not the same
+
+    # the book drifts: A ends at 0.5*2.25 / 1.25 = 90% of it, not 50%
+    end = w * growth.iloc[-1]
+    end = end / end.sum()
+    assert abs(end["A"] - 0.9) < 1e-12
+
+    # rebalancing back to equal weight therefore trades 0.4 one way
+    from fscore.evaluation import turnover
+    assert abs(turnover(end, w) - 0.4) < 1e-12
+    assert turnover(w, w) == 0.0     # comparing targets would price nothing
 
 
 def test_fscore_ties_are_broken_at_random_not_by_value():

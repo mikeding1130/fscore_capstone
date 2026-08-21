@@ -31,6 +31,14 @@ then optimization is layered on the same baskets (isolating construction).
 The multi-year loop (annual July-1 formations, chained holding years) lives in
 `src/fscore/pipeline.py`.
 
+**Rebalancing is annual, and the cost model matches it.** A book is bought at
+formation and left to drift for twelve months; the only trade is at the next
+formation, and turnover is measured from the weights the book has drifted to
+by then. Applying a fixed weight vector to daily returns — the obvious
+shortcut — silently rebalances every day instead: on the 2023 US basket that
+implies 1.19 of one-way turnover over the year against 0.11 for buy-and-hold,
+an order of magnitude of trading that no cost was ever charged for.
+
 ## Repository layout
 
 | Path | Contents |
@@ -48,7 +56,7 @@ The multi-year loop (annual July-1 formations, chained holding years) lives in
 | `notebooks/` | `01`/`02` synthetic demos; `03`/`04` full studies; `grid/` 18 robustness notebooks |
 | `data/` | git-ignored cache, rebuilt by the fetch scripts |
 | `results/` | CSVs and 300-dpi figures behind every table and chart in the report |
-| `tests/` | 19 tests, each pinning one design decision |
+| `tests/` | 20 tests, each pinning one design decision |
 
 ## Reproducing the results
 
@@ -132,20 +140,20 @@ precision, so the grid is read whole rather than at its best cell.
 
 | Sharpe percentile vs random | k = 20 | k = 25 | k = 30 |
 |---|---|---|---|
-| US | 14% | 18% | 31% |
-| Japan | 68% | 48% | 44% |
+| US | 16% | 21% | 36% |
+| Japan | 74% | 53% | 47% |
 
 **No cell in either market clears 5%.** The US screen sits below the random
-median at every basket size and below plain universe equal weight
-(0.71–0.78 vs 0.84); Japan straddles it (0.71–0.75 vs 0.74). The
-optimisation gain D is negative almost throughout (−0.20 to +0.03).
+median at every basket size, below plain universe equal weight (0.73–0.81 vs
+0.86) and below the value screen alone (0.81); Japan straddles the median
+(0.70–0.74 vs 0.72). The optimisation gain D is negative almost throughout
+(−0.22 to +0.01).
 
 **Basket size is not the number of holdings.** At k = 25 the equal-weight
 book holds 25 names by construction, but the minimum-variance book has an
-effective N (1/Σw²) of **5.3–6.6** and the sector-capped one **7.6–8.1**. The
-optimiser concentrates into a handful of names; k is an upper bound, and the
-two quantities are reported side by side in every summary table so they are
-not read as the same thing.
+effective N (1/Σw²) of **5.2–6.6**. The optimiser concentrates into a handful
+of names; k is an upper bound, and the two quantities sit side by side in
+every summary table.
 
 ## Headline results — main study
 
@@ -156,21 +164,22 @@ Every verdict is at the single pre-registered level, **α = 5%**.
 
 | | US (13 formations, Jul 2012 – Jun 2025) | Japan (2 formations, Jul 2023 – Jun 2025) |
 |---|---|---|
-| F-Score EW | 15.9% p.a., Sharpe 0.79 | 17.5% p.a., Sharpe 0.75 |
-| vs random baskets | 53rd pct, p = 0.47 — n.s. | 72nd pct, p = 0.28 — n.s. |
-| + GMV | 97th pct, p = 0.030 — **significant** | 69th pct — n.s. |
-| + sector-GMV | 99th pct, p = 0.007 — **significant** | 82nd pct — n.s. |
-| vs market ETF | 0.79 vs SPY 0.85 | 0.75 vs TOPIX 0.65 |
-| vs pure value screen | 0.79 vs 0.83 | 0.75 vs 0.78 |
-| Long-short (high − low) | Sharpe −0.08 | −1.43 |
+| F-Score EW | 15.9% p.a., Sharpe 0.81 | 18.0% p.a., Sharpe 0.77 |
+| vs random baskets | 47th pct, p = 0.53 — n.s. | 75th pct, p = 0.25 — n.s. |
+| + GMV | 97th pct, p = 0.030 — **significant** | 67th pct — n.s. |
+| + sector-GMV | 99.7th pct, p = 0.003 — **significant** | 81st pct — n.s. |
+| vs market ETF | 0.81 vs SPY 0.85 | 0.77 vs TOPIX 0.65 |
+| vs pure value screen | 0.81 vs 0.86 | 0.77 vs 0.76 |
+| Long-short (high − low) | Sharpe −0.11 | −1.32 |
 | Effective N (k = 30) | EW 30, GMV 5.6, sector-GMV 8.8 | — |
+| Turnover (EW) | 0.61 one-way per year | 0.97 |
 
 **Selection does nothing; the two significant results come from the
 optimiser, and they concentrate.** The equal-weight F-Score basket sits at
-the 53rd percentile — indistinguishable from drawing 30 names at random from
+the 47th percentile — indistinguishable from drawing 30 names at random from
 the same universe — and trails both SPY and the plain book-to-market screen
 that precedes the nine signals. What clears 5% is GMV (p = 0.030) and
-sector-capped GMV (p = 0.007) applied to that same basket. Two cautions
+sector-capped GMV (p = 0.003) applied to that same basket. Two cautions
 belong with those numbers: the grid study, which ranks inside the full
 universe rather than a value subset, finds the optimisation gain **negative**
 in all nine US cells; and the winning books hold an effective 5.6 and 8.8
