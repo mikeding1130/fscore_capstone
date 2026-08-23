@@ -1,0 +1,23 @@
+year,value_names,usable,reason,universe
+2005,0,False,no point-in-time statements,
+2006,0,False,no point-in-time statements,
+2007,0,False,no point-in-time statements,
+2008,0,False,no point-in-time statements,
+2009,0,False,no point-in-time statements,
+2010,0,False,no point-in-time statements,
+2011,0,False,no point-in-time statements,
+2012,0,False,no point-in-time statements,
+2013,0,False,no point-in-time statements,
+2014,0,False,no point-in-time statements,
+2015,0,False,no point-in-time statements,
+2016,0,False,no point-in-time statements,
+2017,0,False,no point-in-time statements,
+2018,0,False,no point-in-time statements,
+2019,0,False,no point-in-time statements,
+2020,0,False,no point-in-time statements,
+2021,0,False,no point-in-time statements,
+2022,0,False,no point-in-time statements,
+2023,47,True,,118.0
+2024,60,True,,150.0
+2025,60,False,"holding year ends 2026-06-30, past the 2025-06-30 evaluation end",150.0
+2026,60,False,"holding year ends 2027-06-30, past the 2025-06-30 evaluation end",150.0
