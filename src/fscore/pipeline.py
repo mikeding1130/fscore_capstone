@@ -14,8 +14,11 @@ For each formation year T (portfolios formed July 1 of year T):
      (detoning is off by default — removing the market mode makes the matrix
      singular, so the minimum-variance solve would optimise residual risk
      only; pass detone=True to reproduce that variant as a diagnostic);
-  6. hold July T .. June T+1, annual rebalance; years are chained into one
-     track record per strategy (random draw i chains with draw i).
+  6. hold July T .. June T+1 — bought at formation and left to drift, with
+     the ONLY rebalance at the next formation; turnover is measured from the
+     drifted weights so the cost matches the trade actually made. Years are
+     chained into one track record per strategy (random draw i chains with
+     draw i).
 
 All dates are point-in-time safe: nothing formed at T uses prices or
 statements from after the formation date.
@@ -126,7 +129,8 @@ class YearResult:
     universe: pd.DataFrame
     scored: pd.DataFrame
     baskets: dict
-    weights: dict          # strategy -> pd.Series
+    weights: dict          # strategy -> target weights at formation
+    weights_end: dict      # strategy -> weights after a year of drift
     daily: pd.DataFrame    # columns = STRATEGIES
     mc_daily: dict         # construction -> DataFrame (cols = draw indices)
     diagnostics: dict = field(default_factory=dict)
@@ -136,15 +140,17 @@ def run_year(fundamentals, prices, sectors, year, *, k=BASKET_SIZE,
              universe_size=150, value_quantile=0.4, n_mc=1000,
              n_mc_opt=300, lag_months=5, seed=42,
              membership: dict[int, set[str]] | None = None,
-             end_cap: pd.Timestamp | None = None,
+             end_cap: pd.Timestamp | None = None,   # see note in run_study
              detone: bool = False, allow_short: bool = False,
              delisting_return: float = 0.0,
              cov_months: int = COV_MONTHS) -> YearResult:
     fd = formation_date(year)
     hold_end = fd + pd.DateOffset(years=1) - pd.Timedelta(days=1)
     if end_cap is not None:
-        # evaluation window cap (e.g. the proposal's sample end): the final
-        # formation may contribute a partial holding period
+        # A cap truncates the last holding year, mixing a partial window in
+        # with complete ones. The study instead ends at the last formation
+        # whose full year finishes inside the sample, so this is left unset;
+        # it stays available for one-off diagnostics.
         hold_end = min(hold_end, pd.Timestamp(end_cap))
 
     snap = pit_snapshot(fundamentals, year, lag_months=lag_months)
@@ -215,26 +221,52 @@ def run_year(fundamentals, prices, sectors, year, *, k=BASKET_SIZE,
     # onto the survivors mid-year
     hold = hold.reindex(columns=sorted(set(hold.columns) | set(est.columns)))
 
-    def port_ret(w: pd.Series) -> pd.Series:
+    def _leg_path(w: pd.Series):
+        """Buy-and-hold value path of one long book, and its drifted weights.
+
+        Rebalancing is ANNUAL: the book is bought at formation and left to
+        drift for twelve months. Applying a fixed weight vector to daily
+        returns would rebalance back to target every day instead — a
+        different strategy, and not the one the turnover figure prices.
+        """
         cols = [c for c in w.index if c in hold.columns]
         ww = w.reindex(cols)
-        # long-only books renormalise to 100%; a dollar-neutral long-short
-        # book sums to 0 and is already at its intended exposure
-        ww = ww / ww.sum() if abs(ww.sum()) > 1e-9 else ww
-        return (hold[cols].fillna(0.0) * ww).sum(axis=1)
+        ww = ww / ww.sum()
+        growth = (1.0 + hold[cols].fillna(0.0)).cumprod()
+        value = (growth * ww).sum(axis=1)
+        end = ww * growth.iloc[-1]
+        return value, end / end.sum()
 
-    daily = pd.DataFrame({name: port_ret(w) for name, w in weights.items()})
+    def port_ret(w: pd.Series):
+        """Daily returns of the held book, and the weights it drifts to by
+        the end of the holding year (what the next rebalance trades from)."""
+        if abs(w.sum()) > 1e-9:
+            value, end = _leg_path(w)
+            r = value.pct_change()
+            r.iloc[0] = value.iloc[0] - 1.0
+            return r, end
+        lv, le = _leg_path(w[w > 0])
+        sv, se = _leg_path(-w[w < 0])
+        rl, rs = lv.pct_change(), sv.pct_change()
+        rl.iloc[0], rs.iloc[0] = lv.iloc[0] - 1.0, sv.iloc[0] - 1.0
+        end = pd.Series({**le.to_dict(), **(-se).to_dict()})
+        return rl - rs, end
+
+    daily_cols, weights_end = {}, {}
+    for name, w in weights.items():
+        daily_cols[name], weights_end[name] = port_ret(w)
+    daily = pd.DataFrame(daily_cols)
 
     # Monte-Carlo control through the identical construction pipeline
     mc_daily: dict[str, pd.DataFrame] = {}
     ew_cols = {}
     for i, b in enumerate(mc):
-        ew_cols[i] = port_ret(equal_weight(b))
+        ew_cols[i] = port_ret(equal_weight(b))[0]
     mc_daily["EW"] = pd.DataFrame(ew_cols)
     for how in ("GMV", "GMVsec"):
         cols_out = {}
         for i, b in enumerate(mc[:n_mc_opt]):
-            cols_out[i] = port_ret(weights_for(b, how))
+            cols_out[i] = port_ret(weights_for(b, how))[0]
         mc_daily[how] = pd.DataFrame(cols_out)
 
     diag = {"universe": len(uni), "value_set": len(value_set),
@@ -250,7 +282,8 @@ def run_year(fundamentals, prices, sectors, year, *, k=BASKET_SIZE,
             "fscore_mean": float(scored.fscore.mean()),
             "fscore_basket_min": int(scored[scored.ticker.isin(baskets["fscore"])].fscore.min())
             if k_eff else np.nan}
-    return YearResult(year, uni, scored, baskets, weights, daily, mc_daily, diag)
+    return YearResult(year, uni, scored, baskets, weights, weights_end,
+                      daily, mc_daily, diag)
 
 
 # ----------------------------------------------------------------------
@@ -266,11 +299,16 @@ class StudyResult:
     mc_daily: dict                # construction -> chained DataFrame
 
     def strategy_turnover(self, strategy: str) -> float:
-        """Mean one-way turnover between rebalances, on the strategy's own
-        weights (so optimised portfolios are charged for weight drift too)."""
-        tos = [turnover(a.weights[strategy], b.weights[strategy])
+        """Mean one-way turnover at each annual rebalance.
+
+        Measured from the weights the old book has **drifted to** by the end
+        of its holding year, not from last year's target: the drifted book is
+        what has to be traded away from, which matches the annual rebalance
+        the return series assumes.
+        """
+        tos = [turnover(a.weights_end[strategy], b.weights[strategy])
                for a, b in zip(self.yearly, self.yearly[1:])
-               if strategy in a.weights and strategy in b.weights]
+               if strategy in a.weights_end and strategy in b.weights]
         return float(np.mean(tos)) if tos else 0.0
 
     def cost_drag(self, strategy: str, cost_per_side: float = 0.0020) -> float:
@@ -283,20 +321,45 @@ class StudyResult:
             drag += SHORT_BORROW_ANNUAL * (float(np.mean(shorts)) if shorts else 0.0)
         return drag
 
+    def effective_n(self, strategy: str) -> float:
+        """Mean effective number of holdings, 1 / sum(w^2), across formations.
+
+        Basket size k is an upper bound, not a headcount: an optimised or
+        constrained book concentrates, so its effective N can sit well below
+        the k names nominally held. Reported so the two are not conflated.
+        """
+        vals = []
+        for y in self.yearly:
+            w = y.weights.get(strategy)
+            if w is None or not len(w):
+                continue
+            ww = w.abs()
+            ww = ww / ww.sum()
+            vals.append(1.0 / float((ww ** 2).sum()))
+        return float(np.mean(vals)) if vals else np.nan
+
     def summary(self, rf_annual: float = 0.0,
                 cost_per_side: float = 0.0020) -> pd.DataFrame:
-        """Gross metrics plus turnover and net-of-cost return/Sharpe."""
+        """Gross performance first — the cross-country convention — then
+        concentration, turnover, and the net-of-cost sensitivity."""
         rows = {}
         for s in self.daily.columns:
             m = metrics(self.daily[s].dropna(), rf_annual)
             drag = self.cost_drag(s, cost_per_side)
+            w0 = self.yearly[0].weights.get(s)
+            m["nominal_k"] = float(len(w0)) if w0 is not None else np.nan
+            m["effective_n"] = self.effective_n(s)
             m["turnover"] = self.strategy_turnover(s)
             m["cost_drag"] = drag
             m["net_ann_return"] = m["ann_return"] - drag
             m["net_sharpe"] = ((m["net_ann_return"] - rf_annual) / m["ann_vol"]
                                if m["ann_vol"] else np.nan)
             rows[s] = m
-        return pd.DataFrame(rows).T
+        cols = ["ann_return", "ann_vol", "sharpe", "max_drawdown",
+                "nominal_k", "effective_n", "turnover",
+                "cost_drag", "net_ann_return", "net_sharpe"]
+        out = pd.DataFrame(rows).T
+        return out[[c for c in cols if c in out.columns]]
 
     def mc_summary(self, construction: str = "EW") -> pd.DataFrame:
         mc = self.mc_daily[construction]
@@ -329,9 +392,9 @@ class StudyResult:
         rows = []
         for prev, curr in zip(self.yearly, self.yearly[1:]):
             rows.append({"year": curr.year,
-                         **{s: turnover(prev.weights[s], curr.weights[s])
+                         **{s: turnover(prev.weights_end[s], curr.weights[s])
                             for s in STRATEGIES
-                            if s in prev.weights and s in curr.weights}})
+                            if s in prev.weights_end and s in curr.weights}})
         return pd.DataFrame(rows).set_index("year")
 
 

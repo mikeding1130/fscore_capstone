@@ -40,7 +40,7 @@ CFG = {
         "bench": {"SPY (S&P 500)": "SPY", "VTV (US value ETF)": "VTV"},
         "bench_note": "Both benchmarks are USD, like the portfolios.",
         "ff": "us", "usd_convert": False,
-        "years": "list(range(2012, 2026))", "lag": 1, "membership": True,
+        "years": "list(range(2012, 2025))", "lag": 1, "membership": True,
         "data_note": (
             "SEC EDGAR XBRL fundamentals (FY2009 onward — XBRL was mandated "
             "2009-2011, which is why the proposal's 2000 start is not reachable "
@@ -51,12 +51,12 @@ CFG = {
             "index-inclusion look-ahead; names whose price history has "
             "vanished from Yahoo (many delistings) still drop out — the "
             "residual survivorship is documented in the README. Formations "
-            "run **July 2012 .. July 2025** — the window agreed with Japan so "
-            "the two markets cover identical calendar time — and the "
-            "evaluation window is capped at **2025-12-31** (the final "
-            "formation contributes a half holding year). Covariances are "
-            "estimated on 36 months of daily returns ending the day before "
-            "formation."),
+            "run **July 2012 .. July 2024** — thirteen chained holding years, "
+            "each a full twelve months. July 2024 is the last formation whose "
+            "complete year finishes inside the sample; taking July 2025 as "
+            "well would mix a half-year window in with the complete ones. "
+            "Covariances are estimated on 36 months of daily returns ending "
+            "the day before formation."),
     },
     "japan": {
         "num": "04", "title": "Japan",
@@ -65,13 +65,12 @@ CFG = {
         "bench_note": ("1306.T is JPY like the portfolios; EWJV is USD, so its "
                        "row mixes in currency effects and is indicative only."),
         "ff": "japan", "usd_convert": True,
-        "years": "[2023, 2024, 2025]", "lag": 3, "membership": False,
+        "years": "[2023, 2024]", "lag": 3, "membership": False,
         "data_note": (
             "Yahoo Finance serves ~5 annual statement periods per name, which "
-            "supports July-1 formations in **2023, 2024 and 2025** only; the "
-            "evaluation window is capped at **2025-12-31** to stay inside the "
-            "proposal's 2000–2025 sample (the final formation contributes a "
-            "half holding year). "
+            "supports July-1 formations in **2023 and 2024** only — 2025 is "
+            "excluded because its holding year would run past the sample and "
+            "be truncated. "
             "Report dates are fiscal period ends; the reporting lag is 3 "
             "months — the statutory deadline for the securities report "
             "(yukashoken hokokusho), so a March fiscal year is public by "
@@ -91,7 +90,9 @@ def full_study_cells(m: dict) -> list:
     md, code = nbf.v4.new_markdown_cell, nbf.v4.new_code_cell
     cells = []
 
-    cells.append(md(f"""# {m['title']} — Full Piotroski F-Score Study (formations 2023–2025)
+    span = (m['years'].replace('list(range(', '').replace('))', '')
+            .replace(', ', '–') if 'range' in m['years'] else m['years'])
+    cells.append(md(f"""# {m['title']} — Full Piotroski F-Score Study
 
 The proposal's complete loop on **real data**: point-in-time universe →
 high-B/M value subset → 9-signal F-Score → fixed-basket selection (F-Score vs
@@ -128,7 +129,7 @@ RESULTS_FIG = ROOT / "results" / "figures"
 MARKET = "{'us' if m['membership'] else 'japan'}"
 YEARS = {m['years']}
 LAG_MONTHS = {m['lag']}  # {'report_date = true 10-K filing date' if m['lag'] == 1 else 'report_date = fiscal period end (no filing dates on Yahoo)'}
-END_CAP = pd.Timestamp("2025-12-31")  # proposal sample ends in 2025
+END_CAP = None   # every holding year is complete; nothing is truncated
 fund, prices, sectors, bench = load_cached(MARKET, ROOT / "data"){membership_load}
 print(f"fundamentals: {{fund.ticker.nunique()}} tickers, "
       f"FY{{fund.fiscal_year.min()}}–FY{{fund.fiscal_year.max()}}")
@@ -201,11 +202,18 @@ ax.set_title(f"{{MARKET.upper()}} — F-Score strategies vs controls and benchma
 ax.legend(fontsize=8, ncol=2); plt.tight_layout()
 save_fig(f"{{MARKET}}_nav_vs_benchmarks", directory=RESULTS_FIG); plt.show()"""))
 
-    cells.append(code("""tbl = study.summary()      # incl. turnover / cost_drag / net_*
+    cells.append(code("""tbl = study.summary()      # gross first; costs follow separately
 for name, r in bench_rets.items():
     tbl.loc[name] = metrics(r)   # benchmarks are buy-and-hold: no turnover
 tbl[["ann_return", "ann_vol", "sharpe", "max_drawdown",
-     "turnover", "cost_drag", "net_ann_return", "net_sharpe"]].round(3)"""))
+     "nominal_k", "effective_n"]].round(3)"""))
+
+    cells.append(md("""`nominal_k` is the basket size, `effective_n` is 1/Σw² —
+an optimised or sector-capped book concentrates, so the two are not the same
+number of holdings. Turnover and the net-of-cost sensitivity follow below."""))
+
+    cells.append(code("""tbl[["turnover", "cost_drag",
+     "net_ann_return", "net_sharpe"]].round(4)"""))
 
     cells.append(md("""### 4. Statistical control — placement in the Monte-Carlo random distribution
 

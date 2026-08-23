@@ -59,9 +59,10 @@ three markets with different data sources.
 
 - A **code repository** with the five stages, unit tests that pin each design
   decision, and scripts that rebuild the data from scratch.
-- **Twenty notebooks** that run end to end and produce every figure and table
-  in the report — eighteen covering a robustness grid (three basket sizes ×
-  three sample sizes × two markets) and two covering the main study.
+- **Four notebooks** that run end to end and produce every figure and table in
+  the report — two sweeping a robustness grid of eighteen settings (three
+  basket sizes × three sample sizes × two markets) and two covering the main
+  study.
 - A **derived data panel** so results can be verified without a paid data
   subscription (see `results/panel/PROVENANCE.md`).
 
