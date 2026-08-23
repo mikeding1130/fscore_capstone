@@ -104,9 +104,10 @@ python scripts/build_grid_notebooks.py execute
 python scripts/build_notebooks.py
 ```
 
-The grid takes about an hour (18 notebooks); the two main-study notebooks
-about twenty minutes. Results are deterministic — every random draw is
-seeded — so a clean run reproduces the reported figures exactly.
+The grid takes a little over an hour (two notebooks, nine cells each); the two
+main-study notebooks about twenty minutes. Results are deterministic — every
+random draw is seeded — so a clean run reproduces the reported figures
+exactly.
 
 Notebooks `01`/`02` are self-contained demos on **clearly-labelled synthetic
 data**; they need no network and are the fastest way to see the pipeline end
@@ -121,7 +122,12 @@ Following the M5 peer review, `src/fscore/grid.py` re-runs the developed pair
 across the reviewer's grid, scoring the team's FS_clean statements with this
 repository's own signal code (`fscore.signal.piotroski`) so that the grid and
 the main study rest on one implementation — basket size k ∈ {20, 25, 30} × random draws N ∈ {1000, 2000, 5000} ×
-{US, Japan} = **18 executed notebooks**, figures saved at dpi = 300.
+{US, Japan} = **18 grid cells**, figures saved at dpi = 300. The cells run as
+a sweep inside **two notebooks**, `us_grid.ipynb` and `japan_grid.ipynb`,
+rather than the eighteen separate files they started as; each cell still
+writes its own `{market}_k{k}_mc{N}_*` outputs, and the merge was checked
+value-by-value against the pre-merge results
+(`scripts/verify_grid_merge.py`, 108/108 CSVs identical).
 Design answers the review's four priorities: explicit random basis (full
 eligible universe, fresh yearly draws, overlap reported), the **direct synergy
 test** D = Sharpe(GMV) − Sharpe(EW) per basket, a strict F ≥ 8 portfolio, and
@@ -130,13 +136,21 @@ reported separately) tested at one pre-registered significance level (**5%**,
 `fscore.evaluation.ALPHA`). Formations run **July 2012 – July 2024** —
 thirteen chained holding years, each a full twelve months, the window shared
 with the main study; covariances use 36 months of daily returns. Aggregated
-outputs in `results/grid/` and `results/grid_summary_2012_2024.csv`;
+outputs in `results/grid/`, consolidated per market in
+`results/grid/{market}_grid_summary.csv` (the notebooks now build this table
+themselves; it reproduces the hand-assembled
+`results/grid_summary_2012_2024.csv` exactly);
 build/execute with `python scripts/build_grid_notebooks.py execute`.
 
 Headline: the percentile is insensitive to the number of random draws —
 1,000 and 5,000 agree to within two percentage points — but **sensitive to
 basket size**, which is itself a finding: k matters more than Monte-Carlo
-precision, so the grid is read whole rather than at its best cell.
+precision, so the grid is read whole rather than at its best cell. The
+consolidated table makes the reason plain: within a given k, every column but
+the percentile and its p-value is *bit-identical* across N, because the same
+seed draws the same first 1,000 baskets whether the run asks for 1,000 or
+5,000. N buys resolution on the p-value, nothing else — the grid is three
+independent settings tested at three precisions, not nine settings.
 
 | Sharpe percentile vs random | k = 20 | k = 25 | k = 30 |
 |---|---|---|---|
