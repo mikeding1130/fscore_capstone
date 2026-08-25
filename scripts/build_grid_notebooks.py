@@ -1,12 +1,15 @@
 """Generate the reviewer-suggested grid study: one notebook per market, each
 sweeping (basket size k) x (random-sample size N) internally.
 
-The grid is 3 x 3 x 2 = 18 cells, as the review asked. It used to be 18
-notebooks, one per cell, which meant eighteen copies of the same prose and the
-same loading code, and a methodology fix had to be made eighteen times. The
-sweep now runs inside two notebooks - `notebooks/grid/us_grid.ipynb` and
-`notebooks/grid/japan_grid.ipynb` - and writes exactly the same per-cell
-outputs under the same `{market}_k{k}_mc{N}_*` names.
+The review asked for 3 x 3 x 2 = 18 cells (k x N x the two developed
+markets). It used to be 18 notebooks, one per cell, which meant eighteen
+copies of the same prose and the same loading code, and a methodology fix had
+to be made eighteen times. The sweep now runs inside one notebook per market
+- `notebooks/grid/us_grid.ipynb`, `japan_grid.ipynb` and `vietnam_grid.ipynb`
+- and writes exactly the same per-cell outputs under the same
+`{market}_k{k}_mc{N}_*` names. Vietnam sweeps the same nine cells, so the
+emerging market is read off the same grid as the developed pair instead of
+the single k=25 / N=1000 cell it used to have.
 
 Results are unchanged by the merge, and that is a property of the seeding
 rather than a hope: every random draw in `fscore.grid` and
@@ -16,8 +19,9 @@ cell's output depends only on (market, k, N, seed) and not on what ran before
 it in the same process. `scripts/verify_grid_merge.py` checks this against the
 saved baseline rather than taking it on trust.
 
-Run:  python scripts/build_grid_notebooks.py          # build
-      python scripts/build_grid_notebooks.py execute  # build + run both
+Run:  python scripts/build_grid_notebooks.py             # build
+      python scripts/build_grid_notebooks.py execute     # build + run all
+      python scripts/build_grid_notebooks.py execute vietnam   # one market
 """
 import pathlib
 import sys
@@ -34,7 +38,62 @@ MCS = [1000, 2000, 5000]
 # inside the sample (June 2025); adding July 2025 would contribute a half
 # year and mix an incomplete window in with the complete ones.
 MARKETS = {"us": ("United States", "list(range(2012, 2025))"),
-           "japan": ("Japan", "list(range(2012, 2025))")}
+           "japan": ("Japan", "list(range(2012, 2025))"),
+           "vietnam": ("Vietnam", "list(range(2012, 2025))")}
+
+# Where each market's score panel and prices come from, and what that means
+# for the reader. Kept out of the shared prose because it is the one paragraph
+# that is genuinely different per market.
+# The universe caveats are not the same in all three markets, so the sentence
+# that states them is per-market rather than shared boilerplate.
+COVERAGE_NOTE = {
+    "us": ("Note the panel resolves to *currently listed* symbols, so the\n"
+           "universe is survivorship-tilted — disclosed as a data limitation.\n"
+           "The value control falls back to the universe in years before B/M\n"
+           "coverage begins (flagged in the diagnostics)."),
+    "japan": ("Note the panel resolves to *currently listed* symbols, so the\n"
+              "universe is survivorship-tilted — disclosed as a data\n"
+              "limitation. B/M coverage does not begin until FY2021, so the\n"
+              "value control **falls back to the whole universe in the 2012–2021\n"
+              "formations** and is a 7-name portfolio in 2022; the `value_EW`\n"
+              "line is therefore three different objects chained together and\n"
+              "should not be read as a value control before 2023. The\n"
+              "`value_fallback` column in the diagnostics flags each year."),
+    "vietnam": ("Two universe caveats differ from the developed pair. Survivorship\n"
+                "is **partial rather than total**: 125 of the panel's 1,371 tickers\n"
+                "stop printing before 2026, spread across 2012–2025, so lines that\n"
+                "died inside the sample are present — but names the vendor no longer\n"
+                "resolves at all leave no trace to count, so the residual is\n"
+                "unquantified. And B/M coverage is **complete by construction** (the\n"
+                "sibling pipeline requires it before export), so `value_fallback` is\n"
+                "false in every formation and the value control here is a real\n"
+                "30-name high-B/M basket in every year — unlike Japan's."),
+}
+
+SOURCE_NOTE = {
+    # Pre-wrapped to the notebook's own line width: these strings are
+    # interpolated into markdown that is committed, so re-wrapping them here
+    # would rewrite two notebooks that have nothing else to change.
+    "us": "Signals come from the team's FS_clean statements, scored by this repository's\nown signal code (`fscore.signal.piotroski`, unit-tested, beginning-of-year\nasset scaling on both sides of every delta); prices from the cached Yahoo\ndata.",
+    "japan": "Signals come from the team's FS_clean statements, scored by this repository's\nown signal code (`fscore.signal.piotroski`, unit-tested, beginning-of-year\nasset scaling on both sides of every delta); prices from the cached Yahoo\ndata.",
+    "vietnam": (
+        "Signals and prices come from the team's own preprocessing repository "
+        "(`../thesis`), which crawls FireAnt, CafeF and TCBS into "
+        "`fscore.db`, reconciles the three, applies accounting checks and "
+        "writes a per-firm-year panel; `run_grid_export.ipynb` there ships "
+        "the score panel and the dividend-adjusted price panel this notebook "
+        "reads. The nine flags in that panel were **independently reproduced "
+        "by this repository's own signal code** from the canonical statement "
+        "lines (`scripts/build_vietnam_data.py`, checked in "
+        "`notebooks/05_vietnam_full_study.ipynb`): all 9,482 scored firm-years "
+        "and all nine flags agree exactly, so the Vietnamese numbers rest on "
+        "the same scoring implementation as the other two markets. One gate "
+        "has no counterpart in the US or Japan: the Vietnamese panel is "
+        "pre-screened for tradability by June turnover, which removes about a "
+        "third of the scoreable firm-years before this notebook sees them "
+        "(section 0). Short selling of ordinary shares is not available on "
+        "HOSE/HNX, so `fscore_LS` is absent here by design, not by omission."),
+}
 
 
 def cells(market: str):
@@ -43,31 +102,28 @@ def cells(market: str):
     return [
         md(f"""# {title} — F-Score grid study: k ∈ {{20, 25, 30}} × N ∈ {{1000, 2000, 5000}}
 
-The {title} half of the reviewer-suggested 3 × 3 × 2 grid (basket sizes ×
-random-sample sizes × two markets). All nine cells run in this one notebook;
+The {title} share of the grid: basket sizes × random-sample sizes × three
+markets, 27 cells in all. The nine {title} cells run in this one notebook;
 each writes `results/grid/{market}_k{{k}}_mc{{N}}_*.csv` and its four figures
 exactly as before, so the per-cell outputs are unchanged.
 
-Signals come from the team's FS_clean statements, scored by this repository's
-own signal code (`fscore.signal.piotroski`, unit-tested, beginning-of-year
-asset scaling on both sides of every delta); prices from the cached Yahoo
-data. Formations are July 1 of **2012–2024** (13 chained holding years, each a
-full twelve months) using score year T−1 — one conservative timing rule for
-both markets, over identical calendar time so the two are comparable. July
-2024 is the last formation whose complete year finishes inside the sample.
-Covariances are estimated on 36 months of daily returns ending the day before
-formation. Note the panel resolves to *currently listed* symbols, so the
-universe is survivorship-tilted — disclosed as a data limitation. The value
-control falls back to the universe in years before B/M coverage begins
-(flagged in the diagnostics).
+{SOURCE_NOTE[market]}
+
+Formations are July 1 of **2012–2024** (13 chained holding years, each a full
+twelve months) using score year T−1 — one conservative timing rule for every
+market, over identical calendar time so the three are comparable. July 2024 is
+the last formation whose complete year finishes inside the sample. Covariances
+are estimated on 36 months of daily returns ending the day before formation.
+
+{COVERAGE_NOTE[market]}
 
 Peer-review design points (see `src/fscore/grid.py` docstring): explicit
 random basis = full eligible universe with fresh draws each year and reported
 overlap; a non-F-Score random control; strict F ≥ 8 portfolio; universe EW and
 plain universe minimum-variance controls; a dollar-neutral long-short book
 (long top-k scores, short bottom-k, charged both legs' trading costs plus a
-stock-borrow fee) wherever shorting is available — Vietnam runs long-only, so
-`fscore_LS` is simply absent there; denoised (not detoned) GMV; primary
+stock-borrow fee) wherever shorting is available — Vietnam runs long-only,
+so `fscore_LS` is simply absent there; denoised (not detoned) GMV; primary
 measure fixed in advance = the GROSS Sharpe ratio (rf = 0), with turnover and
 net-of-cost figures reported separately; and the synergy test
 D = Sharpe(GMV) − Sharpe(EW) computed per basket. All figures are saved at
@@ -126,6 +182,23 @@ print(f"{MARKET.upper()}: {int(r.rows_in_source)} firm-years in the source -> "
 print(f"  identifier never resolved to a tradable symbol: {int(r.dropped_unresolved_identifier)}")
 print(f"  no prior-year row to difference against:        {int(r.dropped_no_prior_year)}")
 print(f"  nine signals not all computable:                {int(r.dropped_incomplete_signals)}")
+# A market may record gates the other two do not — Vietnam's panel is
+# pre-screened for tradability, and that screen removes more firm-years than
+# all three reasons above put together. Extras are read off the frame rather
+# than named here, so a market that adds one reports it without a code change.
+EXTRA_LABELS = {
+    "dropped_failed_accounting_checks": "rejected by the accounting checks",
+    "dropped_no_book_to_market":        "no book-to-market",
+    "dropped_no_june_turnover":         "no June turnover",
+    "dropped_no_formation_price":       "no formation price",
+    "dropped_below_liquidity_gate":     "below the tradability/liquidity gate",
+}
+CANONICAL = ["dropped_unresolved_identifier", "dropped_no_prior_year",
+             "dropped_incomplete_signals"]
+EXTRA = [c for c in drops_total.columns
+         if c.startswith("dropped_") and c not in CANONICAL]
+for c in EXTRA:
+    print(f"  {EXTRA_LABELS.get(c, c) + ':':<47s}{int(r[c]):>3d}")
 drops_total"""),
         md("""### 1. The sweep
 
@@ -168,6 +241,13 @@ follows at the end."""),
     ax.bar(b.index, b.dropped_incomplete_signals,
            bottom=b.scored + b.dropped_no_prior_year + b.dropped_unresolved_identifier,
            label="incomplete nine signals", color="tab:grey")
+    bottom = (b.scored + b.dropped_no_prior_year
+              + b.dropped_unresolved_identifier + b.dropped_incomplete_signals)
+    for c, colour in zip(EXTRA, ["tab:green", "tab:purple", "tab:brown",
+                                 "tab:olive", "tab:cyan"]):
+        ax.bar(b.index, b[c], bottom=bottom,
+               label=EXTRA_LABELS.get(c, c), color=colour)
+        bottom = bottom + b[c]
     ax.set_xlabel("score year"); ax.set_ylabel("firm-years")
     ax.set_title(f"{MARKET.upper()}: what the source holds, and what is scored")
     ax.legend(fontsize=7, ncol=4)
@@ -348,6 +428,10 @@ def execute_all(paths):
 
 
 if __name__ == "__main__":
+    args = sys.argv[1:]
+    only = [a for a in args if a in MARKETS]
     ps = build_all()
-    if len(sys.argv) > 1 and sys.argv[1] == "execute":
+    if only:
+        ps = [p for p in ps if p.stem.replace("_grid", "") in only]
+    if args and args[0] == "execute":
         execute_all(ps)

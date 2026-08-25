@@ -6,6 +6,8 @@ identical stock lists.
 """
 from __future__ import annotations
 
+import hashlib
+
 import numpy as np
 import pandas as pd
 
@@ -81,20 +83,52 @@ def _solve_qp(cov: np.ndarray, n: int, extra_constraints: list) -> np.ndarray:
     return w / w.sum()
 
 
+# Memo for repeated *identical* minimum-variance solves. The grid sweeps
+# (k x N) inside one process, and the whole-universe control does not depend
+# on either: the same several-hundred-name QP would otherwise be re-solved
+# once per cell, and on Vietnam's ~800-name universe that single solve is
+# ~90 s — more than the rest of a formation year put together. The key is the
+# exact input (tickers + covariance bytes), and SLSQP from a fixed start is
+# deterministic, so a hit returns precisely what recomputing would; no result
+# changes. Bounded and FIFO-evicted so a long sweep cannot grow it without
+# limit.
+_GMV_CACHE: dict = {}
+_GMV_CACHE_MAX = 64
+# Small baskets solve in milliseconds; hashing their covariance would cost
+# more than the solve, so only the expensive ones are cached.
+_CACHE_MIN_ASSETS = 100
+
+
+def _gmv_key(cov: np.ndarray, tickers: list[str], long_only: bool):
+    arr = np.ascontiguousarray(np.asarray(cov, dtype=float))
+    return (tuple(tickers), long_only, arr.shape,
+            hashlib.blake2b(arr.tobytes(), digest_size=16).digest())
+
+
 def gmv_weights(cov: np.ndarray, tickers: list[str],
                 long_only: bool = True) -> pd.Series:
     """Global Minimum Variance: min w'Σw s.t. Σw = 1.
 
     Unconstrained GMV has the closed form Σ⁻¹1 / (1'Σ⁻¹1); the long-only
     variant is solved exactly as a QP (SLSQP with analytic gradients).
+
+    Identical (tickers, covariance) inputs are memoised — see `_GMV_CACHE`.
     """
     n = len(tickers)
+    key = _gmv_key(cov, tickers, long_only) if n >= _CACHE_MIN_ASSETS else None
+    if key is not None and key in _GMV_CACHE:
+        return _GMV_CACHE[key].copy()
     inv = np.linalg.pinv(cov)
     ones = np.ones(n)
     w = inv @ ones / (ones @ inv @ ones)
     if long_only and (w < 0).any():
         w = _solve_qp(cov, n, [])
-    return pd.Series(w, index=tickers)
+    out = pd.Series(w, index=tickers)
+    if key is not None:
+        if len(_GMV_CACHE) >= _GMV_CACHE_MAX:
+            _GMV_CACHE.pop(next(iter(_GMV_CACHE)))
+        _GMV_CACHE[key] = out
+    return out.copy()
 
 
 def sector_constrained_gmv(cov: np.ndarray, tickers: list[str],

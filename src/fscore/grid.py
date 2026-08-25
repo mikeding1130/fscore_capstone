@@ -41,8 +41,11 @@ Peer-review responses baked into the design:
   * Controls include the plain long-only minimum-variance portfolio of the
     WHOLE universe and the universe equal-weight.
   * GMV covariance is denoised (Marchenko-Pastur) but NOT detoned: minimum
-    variance must see the common market mode to manage it. (The detoned
-    variant lives in the main study notebooks for comparison.)
+    variance must see the common market mode to manage it. Detoning is out of
+    scope for this study - removing the market eigenmode leaves the matrix
+    singular, so inverting it optimises residual risk only. `clean_rmt` still
+    takes the flag, and `tests/test_pipeline.py` pins why the default is off,
+    but no notebook runs the variant.
   * Yearly returns and per-year diagnostics (universe size, B/M coverage,
     F>=8 count, names dropped for missing prices) are always reported.
 """
