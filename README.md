@@ -86,11 +86,23 @@ python scripts/fetch_us_edgar.py
 python scripts/fetch_us_japan.py
 ```
 
+```bash
+python scripts/build_japan_bbg.py
+```
+
 `fetch_us_edgar.py` pulls US fundamentals from SEC EDGAR (true 10-K filing
-dates, FY2009+) and takes roughly an hour; `fetch_us_japan.py` pulls prices and
-Japanese fundamentals from Yahoo Finance in about forty minutes. The signal
-panel itself ships as a derived CSV — see `results/panel/PROVENANCE.md` for
-what it contains and why the raw vendor fundamentals are not redistributed.
+dates, FY2009+) and takes roughly an hour; `fetch_us_japan.py` pulls prices
+from Yahoo Finance in about forty minutes; `build_japan_bbg.py` turns the
+Bloomberg workbooks under `data/processed/Japan/` into the canonical Japanese
+fundamentals frame in seconds. That last step needs the workbooks, which are
+licensed and git-ignored — **the US half of the study rebuilds end to end from
+public sources with no vendor input at all**. `deepen_japan_prices.py`
+re-fetches the constituents whose cached price history is too short for a 2012
+formation; run it once after `fetch_us_japan.py`.
+
+The signal panel itself ships as a derived CSV — see
+`results/panel/PROVENANCE.md` for what it contains and why the raw vendor
+fundamentals are not redistributed.
 
 **4. Re-run the analysis.** Each command regenerates the notebooks from their
 source templates and executes them, writing CSVs to `results/` and 300-dpi
