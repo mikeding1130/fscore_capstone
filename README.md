@@ -115,6 +115,20 @@ pulls the VN30 and VNINDEX levels for the benchmark comparison. It runs in
 seconds and needs no network — see `data/README.md` for the three conventions
 that differ from the developed pair.
 
+> **`../thesis` is a hard requirement for both Vietnamese notebooks.** Without
+> it, `build_vietnam_data.py` cannot write `vietnam_fundamentals.csv`,
+> `vietnam_sectors.csv`, `vietnam_benchmarks.csv.gz` or
+> `vietnam_score_exclusions.csv`. Notebook `05` then fails on its first cell
+> (`load_cached` needs all four canonical caches), and the Vietnamese grid
+> fails a little later — `load_scores` succeeds, because `vietnam_scores.csv`
+> is shipped, but `exclusion_report` finds no ledger and tries to recompute
+> from an FS_clean workbook Vietnam does not have. The grid now degrades
+> gracefully there, reporting the scored counts it can see rather than
+> failing; notebook `05` still cannot run. The US and Japan notebooks are
+> unaffected. See [VIETNAM_RERUN_NEEDED.md](VIETNAM_RERUN_NEEDED.md) — the
+> Vietnamese artefacts on this branch are `main`'s, and need re-running on a
+> machine that has the sibling repository.
+
 **4. Re-run the analysis.** Each command regenerates the notebooks from their
 source templates and executes them, writing CSVs to `results/` and 300-dpi
 figures to `results/figures/`:

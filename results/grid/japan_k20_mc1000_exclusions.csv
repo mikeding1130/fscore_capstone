@@ -1,14 +1,2 @@
-score_year,scored,dropped_incomplete_signals,eq_offer_from_cashflow,eq_offer_from_shares,no_tm2_assets
-2011,82,18,0,82,8
-2012,84,16,0,84,3
-2013,84,16,0,84,2
-2014,84,16,0,84,3
-2015,84,16,0,84,0
-2016,85,15,0,85,2
-2017,86,14,0,86,2
-2018,86,14,0,86,4
-2019,84,15,0,84,3
-2020,86,14,0,86,4
-2021,87,13,0,87,2
-2022,86,13,0,86,3
-2023,85,15,0,85,2
+,scored,dropped_incomplete_signals,eq_offer_from_cashflow,eq_offer_from_shares,no_tm2_assets,dropped_unresolved_identifier,dropped_no_prior_year
+total,1103,195,0,1103,38,0,0

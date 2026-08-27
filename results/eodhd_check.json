@@ -1,0 +1,40 @@
+{
+  "account_error": "HTTP 401: Unauthenticated",
+  "suffix": null,
+  "attempts": [
+    {
+      "suffix": ".TSE",
+      "fundamentals_ok": false,
+      "fundamentals_error": "HTTP 401: Unauthenticated",
+      "prices_ok": false,
+      "prices_error": "HTTP 401: Unauthenticated",
+      "top_keys": null
+    },
+    {
+      "suffix": ".T",
+      "fundamentals_ok": false,
+      "fundamentals_error": "HTTP 401: Unauthenticated",
+      "prices_ok": false,
+      "prices_error": "HTTP 401: Unauthenticated",
+      "top_keys": null
+    },
+    {
+      "suffix": ".TYO",
+      "fundamentals_ok": false,
+      "fundamentals_error": "HTTP 401: Unauthenticated",
+      "prices_ok": false,
+      "prices_error": "HTTP 401: Unauthenticated",
+      "top_keys": null
+    },
+    {
+      "suffix": ".JP",
+      "fundamentals_ok": false,
+      "fundamentals_error": "HTTP 401: Unauthenticated",
+      "prices_ok": false,
+      "prices_error": "HTTP 401: Unauthenticated",
+      "top_keys": null
+    }
+  ],
+  "diagnosis": "neither prices nor fundamentals available",
+  "api_calls": 9
+}

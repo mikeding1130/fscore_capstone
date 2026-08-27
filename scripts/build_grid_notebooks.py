@@ -131,7 +131,17 @@ scores = build_score_panel(fund, [y - 1 for y in YEARS], sectors=sectors_map,
 drops_year = scores.attrs["per_year"].set_index("score_year")''',
     "vietnam": '''from fscore.data.fs_clean import exclusion_report, load_scores
 scores = load_scores(MARKET, ROOT / "data")   # the sibling pipeline's panel
-drops_year = exclusion_report(MARKET, ROOT / "data", by_year=True)''',
+try:
+    drops_year = exclusion_report(MARKET, ROOT / "data", by_year=True)
+except FileNotFoundError:
+    # The exclusion ledger is written by the sibling pipeline (../thesis) and
+    # is not in every checkout. What the panel itself knows — how many
+    # firm-years were scored each year — is still reported; the gates that
+    # removed the rest are simply not available to break out here, and the
+    # normalisation below leaves them at zero rather than inventing them.
+    drops_year = scores.groupby("score_year").size().to_frame("scored")
+    print("note: no exclusion ledger in this checkout; scored counts only "
+          "(rebuild it with ../thesis + scripts/build_vietnam_data.py)")''',
 }
 
 
