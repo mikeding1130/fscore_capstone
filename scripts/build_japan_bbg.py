@@ -39,8 +39,16 @@ from fscore.data.bbg_processed import (constituents,  # noqa: E402
 
 DATA = ROOT / "data"
 RESULTS = ROOT / "results"
-YEARS = list(range(2012, 2025))
 MARKET = "japan"
+
+# The headline study forms 2012-2024, but the vendor's sheets start at 2000 and
+# the within-country robustness check asks how far back the data really goes.
+# Building the wider frame costs seconds and lets `full_period.py` measure that
+# span instead of being capped by whatever this script happened to load; the
+# headline run simply ignores the extra years.
+BUILD_YEARS = list(range(2005, 2025))
+HEADLINE_YEARS = list(range(2012, 2025))
+YEARS = BUILD_YEARS
 
 
 def year_end_price(prices: pd.DataFrame, fiscal_year: int) -> pd.Series:

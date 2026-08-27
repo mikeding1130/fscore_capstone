@@ -325,6 +325,33 @@ figures: one extra formation year moves the main-study p-value from 0.085 to
 capital indices while the portfolios are total-return. `REVIEW_FINDINGS.md`
 lists both, and the rest.
 
+### Within-country robustness: each market over its own full span
+
+`scripts/full_period.py` re-runs each market over the widest span its data
+supports, holding lag, membership, seed, covariance window and Monte Carlo
+draws identical so the window is the only thing that differs. The evaluation
+end stays fixed at June 2025.
+
+| market | headline | full span | F-Score EW Sharpe | percentile |
+|---|---|---|---|---|
+| US | 2012–2024 (13) | 2010–2024 (15) | 0.811 → 0.849 | 47.3% → 43.1% |
+| Japan | 2012–2024 (13) | **2007–2024 (18)** | 0.758 → **0.295** | 96.8% → **96.1%** |
+| Vietnam | 2012–2024 (13) | 2011–2024 (14) | 0.438 → 0.446 | 91.5% → 95.8% |
+
+Japan's row is the informative one. Extending back through the global
+financial crisis **more than halves the absolute Sharpe** (0.758 → 0.295) while
+the placement against random baskets barely moves (96.8th → 96.1st percentile,
+p = 0.032 → 0.039). The whole universe suffered together: the basket's
+*relative* standing survives a crisis that destroyed its absolute return. That
+is a stronger statement than the thirteen-year result, and it is the kind of
+thing a common window chosen for cross-country comparability hides.
+
+The US moves the other way and more quietly: 2010 and 2011 were good years in
+absolute terms and better ones for the random baskets, so all three Sharpe
+ratios rise while all three percentiles fall — sector-GMV's p-value goes from
+0.0033 to 0.020. A six-fold move from two extra years says a meaningful part
+of that headline p-value came from where the window was cut.
+
 ### Measurement sensitivity
 
 `scripts/eq_offer_sensitivity.py` scores the US sample under both
