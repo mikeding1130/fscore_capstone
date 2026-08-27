@@ -1,2 +1,2 @@
-,rows_in_source,dropped_unresolved_identifier,dropped_incomplete_signals,scored,dropped_no_prior_year,pct_scored
-us,2096.0,149.0,0.0,1739.0,208.0,82.97
+,scored,dropped_incomplete_signals,eq_offer_from_cashflow,eq_offer_from_shares,no_tm2_assets,dropped_unresolved_identifier,dropped_no_prior_year
+total,2968,2322,1931,1037,29,0,0

@@ -74,8 +74,22 @@ SOURCE_NOTE = {
     # Pre-wrapped to the notebook's own line width: these strings are
     # interpolated into markdown that is committed, so re-wrapping them here
     # would rewrite two notebooks that have nothing else to change.
-    "us": "Signals come from the team's FS_clean statements, scored by this repository's\nown signal code (`fscore.signal.piotroski`, unit-tested, beginning-of-year\nasset scaling on both sides of every delta); prices from the cached Yahoo\ndata.",
-    "japan": "Signals come from the team's FS_clean statements, scored by this repository's\nown signal code (`fscore.signal.piotroski`, unit-tested, beginning-of-year\nasset scaling on both sides of every delta); prices from the cached Yahoo\ndata.",
+    "us": """Signals come from SEC EDGAR XBRL statements — public filings, no vendor
+involved — screened to the S&P 500 constituent list as of each formation
+and scored by this repository's own signal code (`fscore.signal.piotroski`,
+unit-tested, beginning-of-year asset scaling on both sides of every delta);
+prices from the cached Yahoo data. This is the same source notebook 03
+reads, so the grid varies k and N against the reported dataset.""",
+    "japan": """Signals come from the Bloomberg statements under `data/processed/Japan/`,
+screened to the TPX100 constituent list as of each formation and scored by
+this repository's own signal code (`fscore.signal.piotroski`); prices from
+the cached Yahoo data, because the vendor's own price workbook is empty.
+This is the same source notebook 04 reads. The universe is only ~100 names,
+so the high-B/M subset is roughly 35 and **k = 30 covers 83–91% of it** —
+the random basket and the F-Score basket then share most of their names,
+leaving the comparison little to detect. **k = 20 is the interpretable cell
+for Japan.** EQ_OFFER runs entirely on the share count here, the generous
+measure, because the vendor's issuance column is empty.""",
     "vietnam": (
         "Signals and prices come from the team's own preprocessing repository "
         "(`../thesis`), which crawls FireAnt, CafeF and TCBS into "
@@ -93,6 +107,41 @@ SOURCE_NOTE = {
         "third of the scoreable firm-years before this notebook sees them "
         "(section 0). Short selling of ordinary shares is not available on "
         "HOSE/HNX, so `fscore_LS` is absent here by design, not by omission."),
+}
+
+
+# Each market's grid reads the same statements its main study reads, so the
+# grid varies k and N against the reported dataset rather than a different one.
+# Vietnam keeps its own preprocessing pipeline, which already ships a scored
+# panel; the developed pair now score from canonical statements here.
+LOADERS = {
+    "us": '''from fscore.data.score_panel import build_score_panel
+from fscore.data.edgar import load_membership
+fund = pd.read_csv(ROOT / "data" / "us_fundamentals.csv", parse_dates=["report_date"])
+sectors_map = pd.read_csv(ROOT / "data" / "us_sectors.csv").set_index("ticker")["sector"]
+scores = build_score_panel(fund, [y - 1 for y in YEARS], sectors=sectors_map,
+                           membership=load_membership(ROOT / "data"))
+drops_year = scores.attrs["per_year"].set_index("score_year")''',
+    "japan": '''from fscore.data.score_panel import build_score_panel
+from fscore.data.bbg_processed import constituents
+fund = pd.read_csv(ROOT / "data" / "japan_bbg_fundamentals.csv", parse_dates=["report_date"])
+sectors_map = pd.read_csv(ROOT / "data" / "japan_sectors.csv").set_index("ticker")["sector"]
+scores = build_score_panel(fund, [y - 1 for y in YEARS], sectors=sectors_map,
+                           membership=constituents(MARKET, ROOT / "data", YEARS))
+drops_year = scores.attrs["per_year"].set_index("score_year")''',
+    "vietnam": '''from fscore.data.fs_clean import exclusion_report, load_scores
+scores = load_scores(MARKET, ROOT / "data")   # the sibling pipeline's panel
+try:
+    drops_year = exclusion_report(MARKET, ROOT / "data", by_year=True)
+except FileNotFoundError:
+    # The exclusion ledger is written by the sibling pipeline (../thesis) and
+    # is not in every checkout. What the panel itself knows — how many
+    # firm-years were scored each year — is still reported; the gates that
+    # removed the rest are simply not available to break out here, and the
+    # normalisation below leaves them at zero rather than inventing them.
+    drops_year = scores.groupby("score_year").size().to_frame("scored")
+    print("note: no exclusion ledger in this checkout; scored counts only "
+          "(rebuild it with ../thesis + scripts/build_vietnam_data.py)")''',
 }
 
 
@@ -139,7 +188,6 @@ other."""),
 ROOT = pathlib.Path.cwd().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 import numpy as np, pandas as pd, matplotlib.pyplot as plt
-from fscore.data.fs_clean import exclusion_report, load_scores
 from fscore.data.team_scores import sectors_from_scores
 from fscore.grid import run_grid
 from fscore.plotting import setup_plots, save_fig
@@ -151,11 +199,22 @@ YEARS = {years}
 FIG = ROOT / "results" / "figures"
 OUT = ROOT / "results" / "grid"; OUT.mkdir(parents=True, exist_ok=True)
 
-# Loaded once for all nine cells instead of once per notebook — the only
-# thing the merge actually changes, and it touches no random state.
-scores = load_scores(MARKET, ROOT / "data")   # our own signal code
+# Loaded once for all nine cells instead of once per notebook — it touches no
+# random state, so the cells stay independent of one another.
+{LOADERS[market]}
 prices = pd.read_csv(ROOT / "data" / f"{{MARKET}}_prices.csv.gz", parse_dates=["date"])
 sectors = sectors_from_scores(scores)
+
+# Markets count different things: the developed pair report which EQ_OFFER
+# measure each firm-year used, Vietnam reports gates the other two do not have.
+# Absent columns are filled with zero so one figure and one table serve all
+# three, and a market that adds a gate reports it without a code change.
+for _c in ["scored", "dropped_unresolved_identifier", "dropped_no_prior_year",
+           "dropped_incomplete_signals", "eq_offer_from_cashflow",
+           "eq_offer_from_shares", "no_tm2_assets"]:
+    if _c not in drops_year.columns:
+        drops_year[_c] = 0
+drops_total = drops_year.sum(numeric_only=True).to_frame("total").T
 print(f"{{MARKET.upper()}}: {{scores.ticker.nunique()}} tickers, "
       f"{{len(scores)}} scored firm-years, formations {{YEARS[0]}}–{{YEARS[-1]}}")"""),
         md("""### 0. Data discarded before any test
@@ -174,31 +233,30 @@ further names removed for insufficient price history.
 This accounting is a property of the source data, so it is identical across
 all nine cells — computed once here, then written under every cell's tag so
 each cell's output set stays self-contained."""),
-        code("""drops_total = exclusion_report(MARKET, ROOT / "data")
-drops_year = exclusion_report(MARKET, ROOT / "data", by_year=True)
-r = drops_total.iloc[0]
-print(f"{MARKET.upper()}: {int(r.rows_in_source)} firm-years in the source -> "
-      f"{int(r.scored)} scored ({r.pct_scored:.1f}%)")
-print(f"  identifier never resolved to a tradable symbol: {int(r.dropped_unresolved_identifier)}")
-print(f"  no prior-year row to difference against:        {int(r.dropped_no_prior_year)}")
-print(f"  nine signals not all computable:                {int(r.dropped_incomplete_signals)}")
-# A market may record gates the other two do not — Vietnam's panel is
-# pre-screened for tradability, and that screen removes more firm-years than
-# all three reasons above put together. Extras are read off the frame rather
-# than named here, so a market that adds one reports it without a code change.
+        code("""r = drops_total.iloc[0]
+held = r.scored + sum(r[c] for c in drops_total.columns if c.startswith("dropped_"))
+print(f"{MARKET.upper()}: {int(held)} firm-years reached the screen -> "
+      f"{int(r.scored)} scored ({100 * r.scored / max(held, 1):.1f}%)")
+# A market may record gates the others do not — Vietnam's panel is pre-screened
+# for tradability, and that screen removes more firm-years than the rest put
+# together. Extras are read off the frame rather than named here, so a market
+# that adds one reports it without a code change.
 EXTRA_LABELS = {
+    "dropped_unresolved_identifier":    "identifier never resolved to a tradable symbol",
+    "dropped_no_prior_year":            "no prior-year row to difference against",
+    "dropped_incomplete_signals":       "nine signals not all computable",
     "dropped_failed_accounting_checks": "rejected by the accounting checks",
     "dropped_no_book_to_market":        "no book-to-market",
     "dropped_no_june_turnover":         "no June turnover",
     "dropped_no_formation_price":       "no formation price",
     "dropped_below_liquidity_gate":     "below the tradability/liquidity gate",
 }
-CANONICAL = ["dropped_unresolved_identifier", "dropped_no_prior_year",
-             "dropped_incomplete_signals"]
-EXTRA = [c for c in drops_total.columns
-         if c.startswith("dropped_") and c not in CANONICAL]
+EXTRA = [c for c in drops_total.columns if c.startswith("dropped_") and r[c]]
 for c in EXTRA:
-    print(f"  {EXTRA_LABELS.get(c, c) + ':':<47s}{int(r[c]):>3d}")
+    print(f"  {EXTRA_LABELS.get(c, c) + ':':<47s}{int(r[c]):>4d}")
+if r.eq_offer_from_cashflow or r.eq_offer_from_shares:
+    print(f"  EQ_OFFER from the cash-flow line:              {int(r.eq_offer_from_cashflow):>4d}")
+    print(f"  EQ_OFFER from the share count (generous):      {int(r.eq_offer_from_shares):>4d}")
 drops_total"""),
         md("""### 1. The sweep
 
@@ -230,27 +288,32 @@ follows at the end."""),
     syn = study.synergy()
 
     # --- figures: same four, same names, same 300 dpi ---
-    fig, ax = plt.subplots(figsize=(9, 3.4))
+    # left: what reached the screen vs what was scored, every gate stacked;
+    # right: which EQ_OFFER measure each firm-year used, where that is recorded
     b = drops_year.loc[[y - 1 for y in YEARS]]
+    shows_eq = bool(b.eq_offer_from_cashflow.sum() or b.eq_offer_from_shares.sum())
+    fig, axes = plt.subplots(1, 2 if shows_eq else 1,
+                             figsize=(11 if shows_eq else 9, 3.4), squeeze=False)
+    ax = axes[0][0]
     ax.bar(b.index, b.scored, label="scored", color="tab:blue")
-    ax.bar(b.index, b.dropped_no_prior_year, bottom=b.scored,
-           label="no prior-year row", color="tab:orange")
-    ax.bar(b.index, b.dropped_unresolved_identifier,
-           bottom=b.scored + b.dropped_no_prior_year,
-           label="identifier unresolved", color="tab:red")
-    ax.bar(b.index, b.dropped_incomplete_signals,
-           bottom=b.scored + b.dropped_no_prior_year + b.dropped_unresolved_identifier,
-           label="incomplete nine signals", color="tab:grey")
-    bottom = (b.scored + b.dropped_no_prior_year
-              + b.dropped_unresolved_identifier + b.dropped_incomplete_signals)
-    for c, colour in zip(EXTRA, ["tab:green", "tab:purple", "tab:brown",
-                                 "tab:olive", "tab:cyan"]):
-        ax.bar(b.index, b[c], bottom=bottom,
-               label=EXTRA_LABELS.get(c, c), color=colour)
+    bottom = b.scored.astype(float).copy()
+    for c, colour in zip(EXTRA, ["tab:grey", "tab:orange", "tab:red", "tab:green",
+                                 "tab:purple", "tab:brown", "tab:olive", "tab:cyan"]):
+        ax.bar(b.index, b[c], bottom=bottom, label=EXTRA_LABELS.get(c, c),
+               color=colour)
         bottom = bottom + b[c]
     ax.set_xlabel("score year"); ax.set_ylabel("firm-years")
-    ax.set_title(f"{MARKET.upper()}: what the source holds, and what is scored")
-    ax.legend(fontsize=7, ncol=4)
+    ax.set_title(f"{MARKET.upper()}: what reached the screen, and what is scored")
+    ax.legend(fontsize=7, ncol=2)
+    if shows_eq:
+        ax2 = axes[0][1]
+        ax2.bar(b.index, b.eq_offer_from_cashflow, label="cash-flow line",
+                color="tab:green")
+        ax2.bar(b.index, b.eq_offer_from_shares, bottom=b.eq_offer_from_cashflow,
+                label="share count (generous)", color="tab:orange")
+        ax2.set_xlabel("score year"); ax2.set_ylabel("firm-years")
+        ax2.set_title(f"{MARKET.upper()}: EQ_OFFER measure used")
+        ax2.legend(fontsize=7)
     plt.tight_layout(); save_fig(f"{tag}_exclusions", directory=FIG); plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(7, 3.5))
