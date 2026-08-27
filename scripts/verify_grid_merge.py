@@ -13,8 +13,13 @@ the freshly written ones, value by value.
 
 Run:  python scripts/verify_grid_merge.py <baseline_dir>
 
-`<baseline_dir>` is a directory holding the pre-merge `grid/` folder (and
-optionally the old hand-built `grid_summary_2012_2024.csv`).
+`<baseline_dir>` is a directory holding the pre-merge `grid/` folder.
+
+It compares *whatever* two sets of grid outputs you point it at, so it stays
+useful beyond the merge it was written for - re-run it after any refactor that
+is supposed to leave the numbers alone. It is not a regression test against
+the current results: those legitimately changed when each market's grid moved
+onto the same statements as its main study.
 
 Exit status is 0 only if every file matches.
 """

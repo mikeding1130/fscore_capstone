@@ -43,7 +43,7 @@ an order of magnitude of trading that no cost was ever charged for.
 
 | Path | Contents |
 |---|---|
-| `src/fscore/data/` | loaders and point-in-time alignment; `fs_clean.py` (statements → signals, the study's score panel), `edgar.py` (SEC filings), `yahoo.py` (prices), `universe.py` (constituents + sectors) |
+| `src/fscore/data/` | loaders and point-in-time alignment; `score_panel.py` (canonical statements → the study's score panel, shared by the grid and the main study), `bbg_processed.py` (the Bloomberg tree; Japan), `edgar.py` (SEC filings; US), `fs_clean.py` (the superseded team workbook), `yahoo.py` (prices), `universe.py` (constituents + sectors) |
 | `src/fscore/signal/` | the nine Piotroski signals and composite score |
 | `src/fscore/selection/` | fixed-size baskets: F-Score top-k, Monte-Carlo random, liquidity-matched, value, market-cap |
 | `src/fscore/construction/` | EW / long-only GMV / sector-capped GMV (exact SLSQP solve); RMT covariance cleaning |
@@ -52,8 +52,8 @@ an order of magnitude of trading that no cost was ever charged for.
 | `src/fscore/markets.py` | per-market trading constraints (where a short leg is tradable) |
 | `src/fscore/grid.py` | robustness grid runner (basket size × random-sample size × market) |
 | `src/fscore/plotting.py` | figure defaults; every saved chart is 300 dpi |
-| `scripts/` | data builders (`fetch_us_edgar.py`, `fetch_us_japan.py`), notebook generators, `export_panel.py` |
-| `notebooks/` | `01`/`02` synthetic demos; `03`/`04` full studies; `grid/` 18 robustness notebooks |
+| `scripts/` | data builders (`fetch_us_edgar.py`, `fetch_us_japan.py`, `build_japan_bbg.py`, `deepen_japan_prices.py`), notebook generators, `full_period.py`, `eq_offer_sensitivity.py`, `export_panel.py` |
+| `notebooks/` | `01`/`02` synthetic demos; `03`/`04` full studies; `grid/` two notebooks sweeping 18 robustness cells |
 | `data/` | git-ignored cache, rebuilt by the fetch scripts |
 | `results/` | CSVs and 300-dpi figures behind every table and chart in the report |
 | `tests/` | 20 tests, each pinning one design decision |
@@ -119,15 +119,18 @@ For a non-technical overview of what the system does and why, see
 ## Peer-review grid study (notebooks/grid/)
 
 Following the M5 peer review, `src/fscore/grid.py` re-runs the developed pair
-across the reviewer's grid, scoring the team's FS_clean statements with this
-repository's own signal code (`fscore.signal.piotroski`) so that the grid and
-the main study rest on one implementation — basket size k ∈ {20, 25, 30} × random draws N ∈ {1000, 2000, 5000} ×
+across the reviewer's grid. Each market's grid reads **the same statements its
+main study reads** — SEC EDGAR for the US, the Bloomberg tree for Japan, via
+`fscore.data.score_panel` — so the grid varies k and N against the reported
+dataset rather than against a different one, and both rest on one signal
+implementation (`fscore.signal.piotroski`) — basket size k ∈ {20, 25, 30} × random draws N ∈ {1000, 2000, 5000} ×
 {US, Japan} = **18 grid cells**, figures saved at dpi = 300. The cells run as
 a sweep inside **two notebooks**, `us_grid.ipynb` and `japan_grid.ipynb`,
 rather than the eighteen separate files they started as; each cell still
-writes its own `{market}_k{k}_mc{N}_*` outputs, and the merge was checked
-value-by-value against the pre-merge results
-(`scripts/verify_grid_merge.py`, 108/108 CSVs identical).
+writes its own `{market}_k{k}_mc{N}_*` outputs. That merge was checked
+value-by-value against the eighteen-notebook results and reproduced all 108
+CSVs exactly (`scripts/verify_grid_merge.py`); the numbers have since moved,
+but from the later switch of data source, not from the merge.
 Design answers the review's four priorities: explicit random basis (full
 eligible universe, fresh yearly draws, overlap reported), the **direct synergy
 test** D = Sharpe(GMV) − Sharpe(EW) per basket, a strict F ≥ 8 portfolio, and
@@ -137,35 +140,40 @@ reported separately) tested at one pre-registered significance level (**5%**,
 thirteen chained holding years, each a full twelve months, the window shared
 with the main study; covariances use 36 months of daily returns. Aggregated
 outputs in `results/grid/`, consolidated per market in
-`results/grid/{market}_grid_summary.csv` (the notebooks now build this table
-themselves; it reproduces the hand-assembled
-`results/grid_summary_2012_2024.csv` exactly);
+`results/grid/{market}_grid_summary.csv`, which the notebooks build
+themselves — it used to be assembled by hand;
 build/execute with `python scripts/build_grid_notebooks.py execute`.
 
 Headline: the percentile is insensitive to the number of random draws —
-1,000 and 5,000 agree to within two percentage points — but **sensitive to
-basket size**, which is itself a finding: k matters more than Monte-Carlo
-precision, so the grid is read whole rather than at its best cell. The
-consolidated table makes the reason plain: within a given k, every column but
-the percentile and its p-value is *bit-identical* across N, because the same
-seed draws the same first 1,000 baskets whether the run asks for 1,000 or
-5,000. N buys resolution on the p-value, nothing else — the grid is three
-independent settings tested at three precisions, not nine settings.
+1,000 and 5,000 agree to within two percentage points. The consolidated table
+shows why: within a given k, every column but the percentile and its p-value
+is *bit-identical* across N, because the same seed draws the same first 1,000
+baskets whether the run asks for 1,000 or 5,000. N buys resolution on the
+p-value, nothing else — the grid is three independent settings tested at three
+precisions, not nine settings.
 
 | Sharpe percentile vs random | k = 20 | k = 25 | k = 30 |
 |---|---|---|---|
-| US | 16% | 21% | 36% |
-| Japan | 74% | 53% | 47% |
+| US | 32% | 21% | 47% |
+| Japan | 68% | 69% | 63% |
 
-**No cell in either market clears 5%.** The US screen sits below the random
-median at every basket size, below plain universe equal weight (0.73–0.81 vs
-0.86) and below the value screen alone (0.81); Japan straddles the median
-(0.70–0.74 vs 0.72). The optimisation gain D is negative almost throughout
-(−0.22 to +0.01).
+**No cell in either market clears 5%**, and neither market's F-Score screen
+beats plain universe equal weight. In the US the value screen alone is the
+strongest thing on the table (0.90–0.99 against 0.81 for the universe), and
+ranking *within* it by F-Score gives back most of that edge (0.70–0.77). In
+Japan the value screen is a drag (0.68–0.70 against 0.75), and the F-Score
+roughly offsets it (0.76). Neither market shows the screen and the score
+working in the same direction.
+
+The grid draws its random baskets from the **full eligible universe**, which
+is a different null from the main study's (the high-B/M subset). For Japan the
+two disagree — 62.5% here against 96.8% there — and the section above sets out
+why both are correct. The optimisation gain D is negative in all eighteen
+cells (−0.21 to −0.05).
 
 **Basket size is not the number of holdings.** At k = 25 the equal-weight
 book holds 25 names by construction, but the minimum-variance book has an
-effective N (1/Σw²) of **5.2–6.6**. The optimiser concentrates into a handful
+effective N (1/Σw²) of **5.1–5.9**. The optimiser concentrates into a handful
 of names; k is an upper bound, and the two quantities sit side by side in
 every summary table.
 
@@ -176,17 +184,24 @@ performance (cost models differ by market and would confound a cross-country
 comparison); turnover and net-of-cost figures are reported separately.
 Every verdict is at the single pre-registered level, **α = 5%**.
 
-| | US (13 formations, Jul 2012 – Jun 2025) | Japan (2 formations, Jul 2023 – Jun 2025) |
+Both markets now span the same thirteen formations, **Jul 2012 – Jun 2025**.
+
+| | US (S&P 500, SEC EDGAR) | Japan (TPX100, Bloomberg) |
 |---|---|---|
-| F-Score EW | 15.9% p.a., Sharpe 0.81 | 18.0% p.a., Sharpe 0.77 |
-| vs random baskets | 47th pct, p = 0.53 — n.s. | 75th pct, p = 0.25 — n.s. |
-| + GMV | 97th pct, p = 0.030 — **significant** | 67th pct — n.s. |
-| + sector-GMV | 99.7th pct, p = 0.003 — **significant** | 81st pct — n.s. |
-| vs market ETF | 0.81 vs SPY 0.85 | 0.77 vs TOPIX 0.65 |
-| vs pure value screen | 0.81 vs 0.86 | 0.77 vs 0.76 |
-| Long-short (high − low) | Sharpe −0.11 | −1.32 |
-| Effective N (k = 30) | EW 30, GMV 5.6, sector-GMV 8.8 | — |
-| Turnover (EW) | 0.61 one-way per year | 0.97 |
+| F-Score EW | 15.9% p.a., Sharpe 0.81 | 15.6% p.a., Sharpe 0.76 |
+| vs random baskets | 47th pct, p = 0.53 — n.s. | 96.8th pct, p = 0.032 — **significant** |
+| + GMV | 97th pct, p = 0.030 — **significant** | 81st pct, p = 0.19 — n.s. |
+| + sector-GMV | 99.7th pct, p = 0.003 — **significant** | 94th pct, p = 0.060 — n.s. |
+| vs market ETF | 0.81 vs SPY 0.85 | 0.76 vs TOPIX 0.68 |
+| vs pure value screen | 0.81 vs 0.86 | 0.76 vs 0.69 |
+| Long-short (high − low) | Sharpe −0.11 | 0.35 |
+| Effective N (k = 30) | EW 30, GMV 5.6, sector-GMV 8.8 | EW 30, GMV 5.0, sector-GMV 7.1 |
+| Turnover (EW) | 0.61 one-way per year | 0.31 |
+
+The two markets answer in mirror image: in the US selection does nothing and
+the optimiser clears 5%; in Japan selection clears 5% and the optimiser does
+not. Neither pattern survives the grid's wider random basis (below), and
+Japan's figure carries the EQ_OFFER caveat.
 
 **Selection does nothing; the two significant results come from the
 optimiser, and they concentrate.** The equal-weight F-Score basket sits at
@@ -200,24 +215,47 @@ in all nine US cells; and the winning books hold an effective 5.6 and 8.8
 names against a nominal 30, so their Sharpe is earned by concentration, not
 by the screen.
 
-Japan clears nothing. Its main study now spans two formations — `FS_clean`
-carries no equity line, so the high-B/M universe depends on the fundamentals
-cache, which for Japan begins at FY2021 — and the 2023 formation scores only
-nine names. Those figures are reported for completeness, not as evidence.
+Japan now runs the same thirteen formations, on the Bloomberg statements in
+`data/processed/Japan/` (fiscal years from 2000, book equity from
+`Common_Shareholders_Equity`), and its answer depends on **which random basis
+the question is asked against** — a distinction worth stating carefully,
+because the two numbers look like a contradiction and are not:
+
+| random basis | random mean | F-Score EW | percentile | p |
+|---|---|---|---|---|
+| high-B/M subset (~35 names, main study) | 0.721 | 0.758 | 96.8% | **0.032** |
+| full eligible universe (~85 names, grid) | 0.739 | 0.756 | 62.5% | 0.375 |
+
+Both are correct answers to different questions. Japan's value screen is a
+**drag**: `value_EW` 0.69 against `universe_EW` 0.75. Inside the high-B/M
+subset the F-Score does pick better than chance; but the screen-plus-score
+combination does not beat picking at random from the whole universe. The
+F-Score is largely filling in the hole the value screen digs. Quoting either
+figure alone misrepresents the result.
+
+The US grid tells the reverse story: the value screen there is strongly
+positive (`value_EW` 0.90–0.99 against `universe_EW` 0.81), yet ranking within
+it by F-Score **loses** at every basket size (0.70–0.77), and no cell of
+either market's grid clears 5%. The optimisation gain D = Sharpe(GMV) −
+Sharpe(EW) is negative in all eighteen cells.
 
 ### Measurement sensitivity
 
 `scripts/eq_offer_sensitivity.py` scores the US sample under both
-equity-issuance measures, since Japan can only use the share-count
-substitute: they disagree on **38.2%** of firm-years (mean F-Score 5.59 vs
-5.91, because buybacks mask issuance), yet move Sharpe by 0.013 and the
-percentile by 6 points, leaving every verdict unchanged. That bounds what
-the Japanese substitute can be costing.
+equity-issuance measures, since Japan can only use the share-count substitute
+— the Bloomberg tree ships a `Proceeds_Issuance_Common_Stock` column but it is
+empty in every sheet of both markets. They disagree on **38.2%** of firm-years,
+and the disagreement has a direction: share counts miss issuance that buybacks
+net away, so the substitute is the **generous** measure (mean F-Score 6.08
+against 5.76). It moves Sharpe by 0.025 and the percentile by 14 points,
+leaving the US verdict unchanged — but Japan sits on the generous side of that
+gap, so its percentiles should be read with the bias in mind rather than
+quoted flat.
 
 ### Cross-validation of the signal layer
 
-Signals are computed by `fscore.signal.piotroski` from the team's FS_clean
-statements. Scoring the same firm-years independently and comparing against
+Signals are computed by `fscore.signal.piotroski`. Scoring the team's FS_clean
+firm-years independently and comparing against
 the collaborators' own implementation agrees on **100%** of US firm-years and
 **99.8%** of Japanese ones (3,369 in total; the residue is four cases at the
 share-count boundary). That comparison is what surfaced a defect in this
