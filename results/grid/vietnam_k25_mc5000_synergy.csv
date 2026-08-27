@@ -1,0 +1,12 @@
+,value
+percentile,0.86
+p_value,0.14
+significant,False
+alpha,0.05
+n_draws,300
+random_mean,0.2595110883869276
+random_std,0.19869092355175463
+D_fscore,0.4513371592818334
+D_random_mean,0.2595110883869276
+D_random_std,0.1990229052762467
+n,300

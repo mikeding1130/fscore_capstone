@@ -1,5 +1,5 @@
-"""Generate the Japan single-year demo (02) and the US/Japan full-study
-notebooks (03, 04). Idempotent; execution happens separately.
+"""Generate the Japan single-year demo (02) and the full-study notebooks
+(03 US, 04 Japan, 05 Vietnam). Idempotent; execution happens separately.
 
 Run:  python scripts/build_notebooks.py
 """
@@ -23,6 +23,9 @@ def build_japan_demo():
         text = "".join(cell["source"])
         text = (text.replace("United States", "Japan")
                     .replace('prefix="US"', 'prefix="JP"')
+                    # the figure name is derived from the market too: without
+                    # this the Japan demo overwrites the US demo's PNG
+                    .replace("demo_us_", "demo_japan_")
                     .replace("SEED = \"Japan\", 2023, 11", "SEED = \"Japan\", 2023, 23"))
         c = (nbf.v4.new_markdown_cell(text) if cell["cell_type"] == "markdown"
              else nbf.v4.new_code_cell(text))
@@ -39,12 +42,8 @@ CFG = {
         "num": "03", "title": "United States",
         "bench": {"SPY (S&P 500)": "SPY", "VTV (US value ETF)": "VTV"},
         "bench_note": "Both benchmarks are USD, like the portfolios.",
-        "ff": "us", "usd_convert": False, "market": "us",
+        "ff": "us", "usd_convert": False,
         "years": "list(range(2012, 2025))", "lag": 1, "membership": True,
-        "fetch": "fetch_us_edgar.py",
-        "loader": """fund, prices, sectors, bench = load_cached(MARKET, ROOT / "data")
-from fscore.data.edgar import load_membership
-membership = load_membership(ROOT / "data")""",
         "data_note": (
             "SEC EDGAR XBRL fundamentals (FY2009 onward — XBRL was mandated "
             "2009-2011, which is why the proposal's 2000 start is not reachable "
@@ -68,9 +67,8 @@ membership = load_membership(ROOT / "data")""",
                   "EWJV (MSCI Japan Value ETF, USD)": "EWJV"},
         "bench_note": ("1306.T is JPY like the portfolios; EWJV is USD, so its "
                        "row mixes in currency effects and is indicative only."),
-        "ff": "japan", "usd_convert": True, "market": "japan",
+        "ff": "japan", "usd_convert": True,
         "years": "list(range(2012, 2025))", "lag": 3, "membership": True,
-        "fetch": "build_japan_bbg.py",
         "loader": """from fscore.data.bbg_processed import constituents
 fund = pd.read_csv(ROOT / "data" / "japan_bbg_fundamentals.csv",
                    parse_dates=["report_date"])
@@ -87,17 +85,15 @@ membership = constituents(MARKET, ROOT / "data", YEARS)""",
             "the vendor's own `Book_Value`, `Historical_Market_Cap` and "
             "`Proceeds_Issuance_Common_Stock` columns are **empty in every "
             "sheet**, so market cap is rebuilt as raw close × shares "
-            "outstanding and EQ_OFFER falls back to the share count (the US "
-            "notebook measures what that substitution costs; see "
-            "`results/eq_offer_sensitivity.csv`). "
+            "outstanding and EQ_OFFER falls back to the share count — the "
+            "generous measure (see `results/eq_offer_sensitivity.csv`). "
             "The universe is the **TPX100** constituent list as of each "
             "formation date, so index-inclusion look-ahead is removed — but "
-            "it is only ~100 names, against the 150 the US screens from, and "
-            "the high-B/M subset is correspondingly small: a 30-name basket "
-            "is 83–91% of it, which leaves the random-basket comparison "
-            "little room to separate anything. The grid's **k = 20** cell is "
-            "the interpretable one for Japan; k = 30 is kept here for "
-            "continuity with the US. "
+            "it is only ~100 names, and the high-B/M subset is correspondingly "
+            "small: a 30-name basket is 83–91% of it, which leaves the "
+            "random-basket comparison little room to separate anything. The "
+            "grid's **k = 20** cell is the interpretable one for Japan; k = 30 "
+            "is kept here for continuity with the US. "
             "Report dates are fiscal period ends; the reporting lag is 3 "
             "months — the statutory deadline for the securities report "
             "(yukashoken hokokusho), so a March fiscal year is public by "
@@ -109,6 +105,47 @@ membership = constituents(MARKET, ROOT / "data", YEARS)""",
             "constituents; the names it cannot serve — Toshiba, Bank of "
             "Yokohama, NTT Docomo — are delisted or merged, which is the "
             "residual survivorship bias stated plainly."),
+    },
+    "vietnam": {
+        "num": "05", "title": "Vietnam",
+        "bench": {"VN30 (VN30 index, VND)": "VN30",
+                  "VNINDEX (all-share index, VND)": "VNINDEX"},
+        "bench_note": (
+            "Both indices are VND, like the portfolios — no currency effect "
+            "enters this row. They are, however, **capital indices**: neither "
+            "reinvests cash dividends, while the portfolios are built on "
+            "dividend-adjusted closes. The gap is the index dividend yield, "
+            "historically around 1.5-2% a year, and it flatters every "
+            "portfolio against these two rows by that much. No total-return "
+            "version of either index exists in the source database, so this "
+            "is disclosed rather than corrected."),
+        "ff": "vietnam", "usd_convert": False,
+        "crosscheck_panel": True,
+        "years": "list(range(2012, 2025))", "lag": 6, "membership": False,
+        "data_note": (
+            "Statements come from the team's own preprocessing repository "
+            "(`../thesis`), which crawls FireAnt, CafeF and TCBS into "
+            "`fscore.db`, reconciles the three, applies accounting checks and "
+            "writes a per-firm-year panel — FY2009 onward, the span the "
+            "Vietnamese sources cover. `scripts/build_vietnam_data.py` maps "
+            "that panel into this study's canonical schema. `report_date` is "
+            "the 31 December fiscal year end (the panel carries no filing "
+            "date), and the reporting lag is **6 months**: 31 December + 6 "
+            "months = 30 June, the last day before a 1 July formation. That "
+            "is the most conservative rule that still admits the prior fiscal "
+            "year, and it is the same screening date the sibling pipeline "
+            "uses, so both branches select on the same information. "
+            "Formations run **July 2012 .. July 2024** — thirteen chained "
+            "holding years, the same calendar as the US and Japan. The price "
+            "cache reaches August 2026 and would support a July 2025 "
+            "formation, but taking it would move the goalposts relative to "
+            "the other two markets. Survivorship is **partial rather than "
+            "total**: the price panel does retain lines that died inside the "
+            "sample — 125 of its 1,371 tickers print for the last time before "
+            "2026, spread across 2012-2025 — but names the vendor no longer "
+            "resolves at all leave no trace to count, so the residual is "
+            "unquantified. Covariances are estimated on 36 months of daily "
+            "returns ending the day before formation."),
     },
 }
 
@@ -132,8 +169,18 @@ three-factor regression.
 
 **Data & scope.** {m['data_note']}
 
-Run `python scripts/{m['fetch']}`
+Run `python scripts/{m['fetch_script']}`
 once before this notebook (builds the git-ignored cache under `data/`)."""))
+
+    membership_load = ("""
+from fscore.data.edgar import load_membership
+membership = load_membership(ROOT / "data")""" if m["membership"] else """
+membership = None""")
+    # Most markets load through the shared Yahoo-cache reader; Japan's
+    # statements come from the Bloomberg tree instead, so it overrides.
+    data_load = m.get("loader") or (
+        'fund, prices, sectors, bench = load_cached(MARKET, ROOT / "data")'
+        + membership_load)
 
     cells.append(code(f"""import sys, pathlib
 ROOT = pathlib.Path.cwd().parent
@@ -144,20 +191,66 @@ from fscore.plotting import setup_plots, save_fig
 from fscore.data.yahoo import load_cached
 from fscore.pipeline import run_study
 from fscore.evaluation import (metrics, benchmark_returns, fetch_ff_factors,
-                               factor_regression, to_usd)
+                               factor_regression, to_usd){m['extra_imports']}
 
 setup_plots()      # study-wide figure defaults; every saved chart is 300 dpi
 RESULTS_FIG = ROOT / "results" / "figures"
 MARKET = "{m['market']}"
 YEARS = {m['years']}
-LAG_MONTHS = {m['lag']}  # {'report_date = true 10-K filing date' if m['lag'] == 1 else 'report_date = fiscal period end; the lag is applied on top'}
+LAG_MONTHS = {m['lag']}  # {m['lag_note']}
 END_CAP = None   # every holding year is complete; nothing is truncated
-{m['loader']}
+{data_load}
 print(f"fundamentals: {{fund.ticker.nunique()}} tickers, "
       f"FY{{fund.fiscal_year.min()}}–FY{{fund.fiscal_year.max()}}")
 print(f"prices: {{prices.ticker.nunique()}} tickers, "
       f"{{prices.date.min():%Y-%m-%d}} → {{prices.date.max():%Y-%m-%d}}")
 fund.groupby("fiscal_year").size().rename("statements")"""))
+
+    if m.get("crosscheck_panel"):
+        # Vietnam is the one market whose signals arrive already computed, by
+        # a different codebase. Recomputing them here from the canonical
+        # statement lines is what lets its results sit beside the other two.
+        cells.append(md("""### 0. Cross-validation of the signal layer
+
+The Vietnamese nine signals arrive from the team's preprocessing repository
+already computed. The US and Japanese ones are computed by
+`fscore.signal.piotroski` in this repository. Putting the three markets in one
+table is only legitimate if they rest on the same scoring rules, so this
+section recomputes every Vietnamese firm-year with *this* repository's signal
+code, from the canonical statement lines `scripts/build_vietnam_data.py`
+writes, and compares flag by flag against the shipped panel.
+
+Two conventions had to be matched for this to be a real test rather than a
+tautology: `net_income` is the parent-company share, and `cogs` is derived as
+`net_sales - gross_profit` so that `(revenue - cogs) / revenue` here is the
+same quantity as the `gross_profit / net_sales` margin the sibling pipeline
+scored. Everything else — beginning-of-year asset scaling on both sides of
+every delta, the cash-flow equity-issuance measure, dropping firm-years whose
+nine signals are not all computable — is this repository's own rule set."""))
+
+        cells.append(code("""from fscore.data.fs_clean import score_panel_path
+from fscore.signal.piotroski import piotroski_signals
+
+shipped = pd.read_csv(score_panel_path(MARKET, ROOT / "data"))
+rows = []
+for y in range(int(shipped.score_year.min()), int(shipped.score_year.max()) + 1):
+    snap = fund[fund.fiscal_year.isin([y, y - 1, y - 2])]
+    scored_y = piotroski_signals(snap, year=y)
+    if len(scored_y):
+        rows.append(scored_y.assign(score_year=y))
+ours = pd.concat(rows, ignore_index=True)
+
+PAIRS = [("roa_pos", "f_roa"), ("cfo_pos", "f_cfo"), ("delta_roa_pos", "f_droa"),
+         ("accruals_ok", "f_accrual"), ("delta_leverage_down", "f_dlever"),
+         ("delta_liquidity_up", "f_dliquid"), ("no_issuance", "f_eq_offer"),
+         ("delta_margin_up", "f_dmargin"), ("delta_turnover_up", "f_dturn")]
+both = ours.merge(shipped, on=["ticker", "score_year"], suffixes=("_ours", "_theirs"))
+agree = pd.Series({"composite F-Score": (both.fscore_ours == both.fscore_theirs).mean(),
+                   **{ours_c: (both[ours_c] == both[theirs_c]).mean()
+                      for ours_c, theirs_c in PAIRS}}, name="agreement")
+print(f"{len(both):,} of {len(shipped):,} shipped firm-years matched on (ticker, score_year)")
+print(f"mean absolute F-Score difference: {(both.fscore_ours - both.fscore_theirs).abs().mean():.4f}")
+(100 * agree).round(2).to_frame("% agreement")"""))
 
     cells.append(md("""### 1. Run the multi-year study
 
@@ -175,7 +268,8 @@ is `dropped_incomplete_signals` in the diagnostics below."""))
     cells.append(code("""study = run_study(MARKET, fund, prices, sectors, YEARS,
                   n_mc=1000, n_mc_opt=300, lag_months=LAG_MONTHS,
                   membership=membership, end_cap=END_CAP, seed=42,
-                  detone=False)   # RMT denoise only; see section 4b
+                  detone=False)   # RMT denoise only — detoning is
+                                  # out of scope for this study
 diag = pd.DataFrame([{"year": yr.year, **yr.diagnostics} for yr in study.yearly])
 diag.set_index("year")"""))
 
@@ -261,63 +355,6 @@ plt.tight_layout(); save_fig(f"{MARKET}_mc_placement", directory=RESULTS_FIG); p
 placements = pd.concat({strat: study.placement(strat, how) for how, strat in pairs})
 placements.round(3)"""))
 
-    if not m["usd_convert"]:   # US only — the RMT detoning diagnostic
-        cells.append(md("""### 4b. RMT covariance: denoise only vs denoise + detone
-
-The covariance fed to the minimum-variance solve is RMT-denoised
-(Marchenko–Pastur noise band flattened). **Detoning** — additionally removing
-the dominant market eigenmode — is off by default because it leaves the
-matrix singular, so inverting it optimises residual risk only. This section
-runs the detoned variant side by side to quantify what that choice costs."""))
-
-        cells.append(code("""study_dt = run_study(MARKET, fund, prices, sectors, YEARS,
-                     n_mc=1000, n_mc_opt=300, lag_months=LAG_MONTHS,
-                     membership=membership, end_cap=END_CAP, seed=42,
-                     detone=True)
-
-def _diag(st, label):
-    yr = st.yearly[0]
-    w = yr.weights["fscore_GMV"]
-    cov = clean_rmt(holding_returns(prices, list(w.index),
-                                    formation_date(yr.year) - pd.DateOffset(years=1),
-                                    formation_date(yr.year) - pd.Timedelta(days=1))[list(w.index)],
-                    detone=(label == "denoise+detone"))
-    ev = np.linalg.eigvalsh(cov)
-    m_ = metrics(st.daily["fscore_GMV"].dropna())
-    return {"construction": label,
-            "min eigenvalue": ev.min(),
-            "condition number": ev.max() / max(ev.min(), 1e-300),
-            "max weight": w.max(),
-            "effective N": 1 / (w ** 2).sum(),
-            "predicted ann vol": np.sqrt(w.values @ cov @ w.values * 252),
-            "realised ann vol": m_["ann_vol"],
-            "ann return": m_["ann_return"],
-            "sharpe": m_["sharpe"]}
-
-from fscore.construction import clean_rmt
-from fscore.pipeline import holding_returns, formation_date
-cmp = pd.DataFrame([_diag(study, "denoise only"), _diag(study_dt, "denoise+detone")])
-cmp.set_index("construction").T"""))
-
-        cells.append(code("""rows = {}
-for label, st in [("denoise only", study), ("denoise+detone", study_dt)]:
-    for strat in ["fscore_GMV", "fscore_GMVsec"]:
-        pl = st.placement(strat, "GMV" if strat == "fscore_GMV" else "GMVsec")
-        rows[(label, strat)] = pl.loc["sharpe"]
-detone_cmp = pd.DataFrame(rows).T
-detone_cmp.round(3)"""))
-
-        cells.append(code("""fig, ax = plt.subplots(figsize=(9, 4.5))
-for label, st, ls in [("denoise only", study, "-"), ("denoise+detone", study_dt, "--")]:
-    for strat, c in [("fscore_EW", "tab:blue"), ("fscore_GMV", "tab:red")]:
-        nav_ = (1 + st.daily[strat].fillna(0)).cumprod()
-        ax.plot(nav_.index, nav_, ls, color=c, lw=1.5, label=f"{strat} ({label})")
-ax.set_yscale("log"); ax.set_ylabel("growth of 1 (log)")
-ax.set_title(f"{MARKET.upper()} — effect of RMT detoning on the GMV track record")
-ax.legend(fontsize=8); plt.tight_layout()
-save_fig("us_detone_comparison", directory=RESULTS_FIG)
-plt.show()"""))
-
     cells.append(md("""### 5. Turnover and implied trading cost
 
 One-way turnover per rebalance, computed on each strategy's actual weights
@@ -331,6 +368,39 @@ to.loc["mean"] = to.mean()
 cost = (2 * to.loc["mean"] * 0.0020).rename("annual cost drag")
 pd.concat([to.round(3).T, cost.round(4)], axis=1)"""))
 
+    if m["ff"] == "vietnam":
+        # Ken French covers the US, Japan and the developed regions — not
+        # Vietnam, and no free substitute does. The factors are built from
+        # this study's own panel instead; see `local_ff3_factors`.
+        ff_lines = ('ff = local_ff3_factors(fund, prices, YEARS, '
+                    'lag_months=LAG_MONTHS)\n'
+                    'series = {s: study.daily[s].dropna()\n'
+                    '          for s in ["fscore_EW", "fscore_GMV", "value_EW"]}')
+        cells.append(md("""### 6. Does alpha survive the factor exposures?
+
+Daily excess returns regressed on three factors (market, size, value) with
+Newey-West standard errors. The `alpha_significant` column is the verdict at
+the study's single level, 5%.
+
+**The factors are local, not Ken French's.** The library covers the US, Japan
+and the developed regions; it does not cover Vietnam, and no free substitute
+does. Skipping the regression would leave the study's only emerging market
+without the one test that strips style exposure out of the result, so the
+factors are built here from the same point-in-time panel the study already
+uses — a 2x3 size / book-to-market sort, formed 1 July on fiscal T-1
+statements, value-weighted and held for twelve months
+(`fscore.evaluation.local_ff3_factors`). Two consequences: the market leg is
+this panel's eligible universe rather than the whole exchange, and market cap
+is measured at the fiscal year end rather than at formation. The alphas below
+are therefore alphas against a *local approximation* of the three factors,
+and are not comparable coefficient-for-coefficient with the US and Japan
+tables above."""))
+        cells.append(code(f"""{ff_lines}
+reg = pd.DataFrame({{s: factor_regression(r, ff) for s, r in series.items()}}).T
+reg.round(4)"""))
+        _skip_ff = True
+    else:
+        _skip_ff = False
     ff_lines = f'''ff = fetch_ff_factors("{m['ff']}")'''
     if m["usd_convert"]:
         ff_lines += '''
@@ -343,15 +413,16 @@ series = {s: to_usd(study.daily[s].dropna(), fx)
 series = {s: study.daily[s].dropna()
           for s in ["fscore_EW", "fscore_GMV", "value_EW"]}'''
 
-    cells.append(md("""### 6. Does alpha survive the factor exposures?
+    if not _skip_ff:
+        cells.append(md("""### 6. Does alpha survive the factor exposures?
 
 Daily excess returns regressed on the Fama-French three factors (market,
 size, value) with Newey-West standard errors. The `alpha_significant` column
 is the verdict at the study's single level, 5%."""
-                    + (" Japan portfolio returns are converted to USD to match "
-                       "the USD-denominated Japan factor set." if m["usd_convert"] else "")))
+                        + (" Japan portfolio returns are converted to USD to match "
+                           "the USD-denominated Japan factor set." if m["usd_convert"] else "")))
 
-    cells.append(code(f"""{ff_lines}
+        cells.append(code(f"""{ff_lines}
 reg = pd.DataFrame({{s: factor_regression(r, ff) for s, r in series.items()}}).T
 reg.round(4)"""))
 
@@ -368,8 +439,27 @@ print("saved to", RESULTS)"""))
     return cells
 
 
+# Fields derived from the config rather than repeated in it: the cache-building
+# script, the market key the notebook passes to `load_cached`, and the one-line
+# explanation of what `report_date` means for that market.
+FETCH_SCRIPT = {"us": "fetch_us_edgar.py", "japan": "build_japan_bbg.py",
+                "vietnam": "build_vietnam_data.py"}
+EXTRA_IMPORTS = {
+    "us": "", "japan": "",
+    # Ken French has no Vietnamese factor set; the notebook builds one
+    "vietnam": "\nfrom fscore.evaluation import local_ff3_factors",
+}
+LAG_NOTE = {
+    "us": "report_date = true 10-K filing date",
+    "japan": "report_date = fiscal period end; the lag is applied on top",
+    "vietnam": "report_date = 31 Dec fiscal year end; +6m = 30 Jun, the day before formation",
+}
+
+
 def build_full(market: str):
-    m = CFG[market]
+    m = dict(CFG[market], market=market,
+             fetch_script=FETCH_SCRIPT[market], lag_note=LAG_NOTE[market],
+             extra_imports=EXTRA_IMPORTS[market])
     nb = nbf.v4.new_notebook(metadata={
         "kernelspec": {"display_name": "Python 3", "language": "python",
                        "name": "python3"},
@@ -386,3 +476,4 @@ if __name__ == "__main__":
     print("wrote", NB_DIR / "02_japan_fscore_single_year.ipynb")
     build_full("us")
     build_full("japan")
+    build_full("vietnam")

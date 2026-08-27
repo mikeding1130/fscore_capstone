@@ -11,9 +11,10 @@ For each formation year T (portfolios formed July 1 of year T):
      liquidity-matched controls vs a Monte-Carlo random distribution;
   5. construction            — EW / long-only GMV / sector-capped GMV on an
      RMT-denoised covariance estimated from the year before formation
-     (detoning is off by default — removing the market mode makes the matrix
+     (detoning is out of scope — removing the market mode makes the matrix
      singular, so the minimum-variance solve would optimise residual risk
-     only; pass detone=True to reproduce that variant as a diagnostic);
+     only. The flag survives so the reason stays testable, but nothing in the
+     study sets it);
   6. hold July T .. June T+1 — bought at formation and left to drift, with
      the ONLY rebalance at the next formation; turnover is measured from the
      drifted weights so the cost matches the trade actually made. Years are

@@ -39,6 +39,25 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# Cache filenames. These hold *the study's score panel* — the nine flags and
+# the composite, whatever produced them — so they are named for what they
+# contain, not for one market's source. They used to be called
+# `{market}_fsclean_*`, which read as a claim that every market came through
+# an FS_clean workbook; Vietnam never did (its panel is exported by the
+# sibling preprocessing repository), so the old name was actively
+# misleading. The legacy names are still ACCEPTED on read so an existing
+# cache is not silently invalidated into an hour of recompute.
+SCORE_PANEL = "{market}_scores.csv"
+EXCLUSIONS = "{market}_exclusions.csv"
+LEGACY_SCORE_PANEL = "{market}_fsclean_scores.csv"
+LEGACY_EXCLUSIONS = "{market}_fsclean_exclusions.csv"
+
+# Markets whose panel is SHIPPED rather than computed from a workbook here.
+# `WORKBOOKS` has no entry for them, so a missing cache must say so instead
+# of dying on a KeyError three frames down.
+SHIPPED_PANEL = {"vietnam": "scripts/build_vietnam_data.py, and the "
+                            "`run_grid_export` notebook in ../thesis"}
+
 WORKBOOKS = {"us": "USA_FS_clean.xlsx", "japan": "Japan_FS_clean.xlsx"}
 SCORE_WORKBOOKS = {"us": "USA_Fscores_nonfinancial.xlsx",
                    "japan": "Japan_Fscores_nonfinancial.xlsx"}
@@ -208,6 +227,23 @@ def _sector_map(market: str, data_dir: Path) -> pd.Series:
     return pd.concat(parts).groupby(level=0).first()
 
 
+def _resolve(data_dir: Path, market: str, current: str, legacy: str) -> Path:
+    """Where a cache file lives: the current name, or the legacy one if that
+    is the only copy on disk. Writes always use the current name."""
+    now = data_dir / current.format(market=market)
+    old = data_dir / legacy.format(market=market)
+    return old if old.exists() and not now.exists() else now
+
+
+def score_panel_path(market: str, data_dir: str | Path = "data") -> Path:
+    return _resolve(Path(data_dir), market.lower(),
+                    SCORE_PANEL, LEGACY_SCORE_PANEL)
+
+
+def exclusions_path(market: str, data_dir: str | Path = "data") -> Path:
+    return _resolve(Path(data_dir), market.lower(), EXCLUSIONS, LEGACY_EXCLUSIONS)
+
+
 def load_scores(market: str, data_dir: str | Path = "data",
                 refresh: bool = False) -> pd.DataFrame:
     """The study's score panel, computed by our own signal code.
@@ -216,13 +252,18 @@ def load_scores(market: str, data_dir: str | Path = "data",
     both sit on the same implementation instead of one reading precomputed
     flags. Adds the sector label and rejoins book-to-market and market cap
     from the fundamentals cache; results are cached as
-    {market}_fsclean_scores.csv.
+    {market}_scores.csv.
     """
     market = market.lower()
     d = Path(data_dir)
-    cache = d / f"{market}_fsclean_scores.csv"
+    cache = score_panel_path(market, d)
     if cache.exists() and not refresh:
         return pd.read_csv(cache)
+    if market in SHIPPED_PANEL:
+        raise FileNotFoundError(
+            f"{cache} is missing, and {market!r} has no FS_clean workbook to "
+            f"recompute it from — its score panel is shipped, not derived "
+            f"here. Rebuild it with {SHIPPED_PANEL[market]}.")
 
     prices = pd.read_csv(d / f"{market}_prices.csv.gz", parse_dates=["date"])
     panel = scores_from_fs_clean(market, d, prices=prices)
@@ -230,7 +271,7 @@ def load_scores(market: str, data_dir: str | Path = "data",
 
     from .team_scores import _attach_market_values
     panel = _attach_market_values(panel, market, d)
-    panel.to_csv(cache, index=False)
+    panel.to_csv(d / SCORE_PANEL.format(market=market), index=False)
     _write_exclusions(market, d, panel)
     return panel
 
@@ -241,7 +282,7 @@ def _write_exclusions(market: str, data_dir: Path, panel: pd.DataFrame) -> None:
     Three things remove rows, and they are counted separately because they
     mean different things: an identifier that never resolved to a tradable
     symbol, a year without the t-1 row the deltas need, and a year whose nine
-    signals were not all computable. Written to {market}_fsclean_exclusions.csv.
+    signals were not all computable. Written to {market}_exclusions.csv.
     """
     xl = pd.ExcelFile(data_dir / "processed" / WORKBOOKS[market])
     mapping = _bbg_to_yahoo(market, data_dir)
@@ -271,13 +312,13 @@ def _write_exclusions(market: str, data_dir: Path, panel: pd.DataFrame) -> None:
                                   - d.dropped_unresolved_identifier
                                   - d.dropped_incomplete_signals
                                   - d.scored).clip(lower=0)
-    d.to_csv(data_dir / f"{market}_fsclean_exclusions.csv", index=False)
+    d.to_csv(data_dir / EXCLUSIONS.format(market=market), index=False)
 
 
 def exclusion_report(market: str, data_dir: str | Path = "data",
                      by_year: bool = False) -> pd.DataFrame:
     """How much of the source the study discards, and for which reason."""
-    p = Path(data_dir) / f"{market.lower()}_fsclean_exclusions.csv"
+    p = exclusions_path(market, data_dir)
     if not p.exists():
         load_scores(market, data_dir, refresh=True)
     rep = pd.read_csv(p)

@@ -275,3 +275,50 @@ if __name__ == "__main__":
                test_vs_random_percentile]:
         fn()
         print(f"{fn.__name__}: OK")
+
+
+def test_gmv_memo_returns_what_recomputing_would():
+    """The grid sweeps k x N in one process and the whole-universe
+    minimum-variance solve depends on neither, so it is memoised. A hit has to
+    be indistinguishable from a recompute — otherwise the cache would be a
+    silent source of drift between cells."""
+    from fscore.construction import weights as W
+
+    n = W._CACHE_MIN_ASSETS + 5          # above the threshold, so it caches
+    cov = _rand_cov(n, seed=11)
+    tickers = [f"T{i}" for i in range(n)]
+    W._GMV_CACHE.clear()
+    first = gmv_weights(cov, tickers)
+    assert len(W._GMV_CACHE) == 1
+    cached = gmv_weights(cov, tickers)
+    W._GMV_CACHE.clear()
+    recomputed = gmv_weights(cov, tickers)
+    assert (cached.values == first.values).all()
+    assert (recomputed.values == first.values).all()
+    # a different covariance must not collide with the stored one
+    other = gmv_weights(_rand_cov(n, seed=12), tickers)
+    assert not np.allclose(other.values, first.values)
+    # and the caller must not be able to mutate what the cache holds
+    cached.iloc[0] = 999.0
+    assert gmv_weights(cov, tickers).iloc[0] != 999.0
+
+
+def test_local_ff3_factors_price_their_own_sorts():
+    """A locally built factor set is only useful if it actually spans the
+    sorts it is built from: regress the high-B/M leg on the factors and HML
+    has to load positively. Ken French does not cover Vietnam, so this is the
+    only check available that the construction is not scrambled."""
+    from fscore.data.loaders import make_demo_market
+    from fscore.evaluation import local_ff3_factors
+
+    # the demo market already carries fiscal years `year - 1` and `year`;
+    # a 2023 formation reads the 2022 statements under a 6-month lag
+    fund, prices = make_demo_market(n_stocks=120, year=2022, seed=5)
+    fund["report_date"] = pd.to_datetime(
+        fund.fiscal_year.astype(str) + "-12-31")
+    ff = local_ff3_factors(fund, prices, [2023], lag_months=6, min_names=20)
+    assert list(ff.columns) == ["Mkt-RF", "SMB", "HML", "RF"]
+    assert len(ff) > 60
+    assert (ff["RF"] == 0).all()          # rf = 0 is the study's convention
+    # the three factors must be distinct series, not copies of one another
+    assert ff[["Mkt-RF", "SMB", "HML"]].corr().abs().values[np.triu_indices(3, 1)].max() < 0.99

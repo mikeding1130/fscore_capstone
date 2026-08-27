@@ -67,7 +67,11 @@ MARKETS = {
                   bench={"SPY (S&P 500)": "SPY", "VTV (US value ETF)": "VTV"}),
     "japan": dict(lag_months=3, membership=False,
                   bench={"1306.T (TOPIX ETF, JPY)": "1306.T"}),
-    # Vietnam drops in here once its cache exists; nothing else needs changing.
+    # Vietnam's cache is built by scripts/build_vietnam_data.py. Its lag is 6
+    # months rather than 3: report_date is the 31 December fiscal year end and
+    # +6 months lands on 30 June, the last day before formation.
+    "vietnam": dict(lag_months=6, membership=False,
+                    bench={"VN30 (VN30 index, VND)": "VN30"}),
 }
 PROBE_FROM, PROBE_TO = 2005, 2027
 
@@ -240,9 +244,22 @@ def main() -> None:
             rows.extend(r)
     if rows:
         cmp = pd.DataFrame(rows).set_index(["market", "strategy"])
-        cmp.to_csv(RESULTS / "robustness_full_period.csv")
+        # Running one market must not delete the others. The combined file is
+        # the union of what is on disk and what this run produced, with this
+        # run winning where they overlap — otherwise
+        # `full_period.py vietnam` would silently discard the US and Japan
+        # rows, which is exactly what it used to do.
+        out = RESULTS / "robustness_full_period.csv"
+        if out.exists():
+            prev = pd.read_csv(out).set_index(["market", "strategy"])
+            keep = prev[~prev.index.isin(cmp.index)]
+            cmp = (pd.concat([keep, cmp])
+                     .reindex(columns=cmp.columns.union(prev.columns,
+                                                        sort=False))
+                     .sort_index())
+        cmp.to_csv(out)
         print("\n" + cmp.to_string())
-        print(f"\nsaved -> {RESULTS / 'robustness_full_period.csv'}")
+        print(f"\nsaved -> {out}")
 
 
 if __name__ == "__main__":

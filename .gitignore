@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+.venv/
 .ipynb_checkpoints/
 data/raw/
 data/processed/
@@ -7,6 +8,8 @@ data/processed/
 *.csv
 *.csv.gz
 !data/README.md
+!data/vietnam_fsclean_scores.csv
+!data/vietnam_prices.csv.gz
 !results/*.csv
 !results/grid/*.csv
 # Committed on purpose: the rubric requires the underlying data to be
