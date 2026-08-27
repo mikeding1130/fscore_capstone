@@ -22,3 +22,8 @@ data/vietnam_pipeline/
 # results/panel/PROVENANCE.md.
 !results/panel/*.csv
 .env
+
+# Diagnostic output from scripts/check_eodhd.py — a local probe result,
+# not a study artefact. Regenerate it with your own key rather than reading
+# whatever happens to be committed.
+results/eodhd_check.json

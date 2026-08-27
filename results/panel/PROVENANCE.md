@@ -5,16 +5,23 @@ What each column is, where it came from, and why it can be published.
 | Column | Source | Nature |
 |---|---|---|
 | `ticker`, `score_year`, `fiscal_year` | identifiers | not data |
-| `f_roa` … `f_dturn` (nine flags) | computed here by `fscore.signal.piotroski` from licensed-terminal statements | **irreversible**: each is one bit, the outcome of a comparison (e.g. ROA > 0). The underlying value cannot be recovered. |
+| `f_roa` … `f_dturn` (nine flags) | computed here by `fscore.signal.piotroski` | **irreversible**: each is one bit, the outcome of a comparison (e.g. ROA > 0). The underlying value cannot be recovered. |
 | `fscore` | sum of the nine flags | further aggregation, 0–9 |
 | `sector` | Yahoo Finance classification | not vendor data |
+
+**Statement sources.** The US flags come from SEC EDGAR XBRL — public filings,
+no vendor involved, rebuildable end to end by `scripts/fetch_us_edgar.py`. The
+Japanese flags come from the Bloomberg statements under `data/processed/Japan/`
+(git-ignored, never redistributed), rebuilt into a canonical frame by
+`scripts/build_japan_bbg.py`; the facts underneath are the statutory 有価証券
+報告書, which any reader can recompute from independently.
 
 **No continuous per-security value is exported.** `bm` and `market_cap` are
 ours rather than the vendor's, but they are still per-security numbers, so
 they are recomputed at load time from the caches that
-`scripts/fetch_us_edgar.py` and `scripts/fetch_us_japan.py` rebuild from
-public sources; shipping them would add nothing but exposure. Raw statement
-values never leave the machine at all.
+`scripts/fetch_us_edgar.py`, `scripts/fetch_us_japan.py` and
+`scripts/build_japan_bbg.py` rebuild; shipping them would add nothing but
+exposure. Raw statement values never leave the machine at all.
 
 What remains is identifiers plus nine bits and their sum.
 
@@ -32,8 +39,9 @@ filings without any commercial subscription.
 
 ## Reproducing the results from this panel
 
-`results/panel/*.csv` plus the caches rebuilt by `scripts/fetch_us_edgar.py`
-and `scripts/fetch_us_japan.py` are enough to re-run every notebook. The
+`results/panel/*.csv` plus the caches rebuilt by `scripts/fetch_us_edgar.py`,
+`scripts/fetch_us_japan.py` and `scripts/build_japan_bbg.py` are enough to
+re-run every notebook. The
 study consumes `fscore` for ranking and `sector` for the sector constraint;
 book-to-market and market capitalisation are joined from the rebuilt caches
 when the panel is loaded, so no continuous value has to travel with it.

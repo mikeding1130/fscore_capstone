@@ -6,11 +6,20 @@ common substitute is "did the share count rise?". They disagree often,
 because buybacks net against issuance and splits move the count without
 raising capital.
 
-Japan has to use the share-count substitute — the licensed workbook carries
-no issuance line for any firm-year. The United States does not: SEC EDGAR
-supplies `ProceedsFromIssuanceOfCommonStock` from FY2009. So the US sample
-can be scored both ways, and the disagreement measured, which is what puts a
-number on the assumption Japan is forced into.
+Japan has to use the share-count substitute. The Bloomberg tree was expected
+to end that — it ships a `Proceeds_Issuance_Common_Stock` column — but the
+column is empty in every sheet of both markets, so nothing changed. The United
+States is not stuck: SEC EDGAR supplies `ProceedsFromIssuanceOfCommonStock`
+from FY2009, so the US sample can be scored both ways and the disagreement
+measured. That is what puts a number on the assumption Japan is forced into.
+
+The substitution is not neutral, and its sign matters for reading Japan's
+results. Share counts miss issuance that buybacks net away, so the substitute
+scores firms **more generously**: on the US sample the mean F-Score is 6.08 by
+share count against 5.76 by cash flow, and the strategy's placement against
+random baskets is flattered by roughly 14 percentile points. Japan's headline
+therefore sits on the generous side of that gap, and the report should say so
+rather than quote its percentile unqualified.
 
 Run:  python scripts/eq_offer_sensitivity.py
 Writes results/eq_offer_sensitivity.csv and results/eq_offer_headline.csv

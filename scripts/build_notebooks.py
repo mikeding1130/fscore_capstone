@@ -68,23 +68,43 @@ CFG = {
         "bench_note": ("1306.T is JPY like the portfolios; EWJV is USD, so its "
                        "row mixes in currency effects and is indicative only."),
         "ff": "japan", "usd_convert": True,
-        "years": "[2023, 2024]", "lag": 3, "membership": False,
+        "years": "list(range(2012, 2025))", "lag": 3, "membership": True,
+        "loader": """from fscore.data.bbg_processed import constituents
+fund = pd.read_csv(ROOT / "data" / "japan_bbg_fundamentals.csv",
+                   parse_dates=["report_date"])
+prices = pd.read_csv(ROOT / "data" / "japan_prices.csv.gz", parse_dates=["date"])
+sectors = pd.read_csv(ROOT / "data" / "japan_sectors.csv").set_index("ticker")["sector"]
+bench = pd.read_csv(ROOT / "data" / "japan_benchmarks.csv.gz", parse_dates=["date"])
+membership = constituents(MARKET, ROOT / "data", YEARS)""",
         "data_note": (
-            "Yahoo Finance serves ~5 annual statement periods per name, which "
-            "supports July-1 formations in **2023 and 2024** only — 2025 is "
-            "excluded because its holding year would run past the sample and "
-            "be truncated. "
+            "Bloomberg statements from `data/processed/Japan/`, which carry "
+            "fiscal years back to 2000 and so lift Japan onto the **same "
+            "July 2012 – July 2024 window as the US** — thirteen chained "
+            "holding years, replacing the two formations the old Yahoo cache "
+            "allowed. Book equity comes from `Common_Shareholders_Equity`; "
+            "the vendor's own `Book_Value`, `Historical_Market_Cap` and "
+            "`Proceeds_Issuance_Common_Stock` columns are **empty in every "
+            "sheet**, so market cap is rebuilt as raw close × shares "
+            "outstanding and EQ_OFFER falls back to the share count — the "
+            "generous measure (see `results/eq_offer_sensitivity.csv`). "
+            "The universe is the **TPX100** constituent list as of each "
+            "formation date, so index-inclusion look-ahead is removed — but "
+            "it is only ~100 names, and the high-B/M subset is correspondingly "
+            "small: a 30-name basket is 83–91% of it, which leaves the "
+            "random-basket comparison little room to separate anything. The "
+            "grid's **k = 20** cell is the interpretable one for Japan; k = 30 "
+            "is kept here for continuity with the US. "
             "Report dates are fiscal period ends; the reporting lag is 3 "
             "months — the statutory deadline for the securities report "
             "(yukashoken hokokusho), so a March fiscal year is public by "
-            "end-June, just before formation. No free source provides 2000-2025 "
-            "Japanese fundamentals (J-Quants free tier is 2 years; EDINET XBRL "
-            "starts 2008 and needs the Japanese-GAAP taxonomy); extending "
-            "Japan to the proposal window requires a licensed source "
-            "(J-Quants paid tier / Refinitiv), which plugs into the same "
-            "canonical schemas. Universe membership is current Nikkei 225 "
-            "members — a survivorship caveat documented in "
-            "`src/fscore/data/universe.py`."),
+            "end-June, just before formation. "
+            "**Prices are not from this vendor tree**: its price workbook is "
+            "empty in both markets (its own `price_coverage.xlsx` records "
+            "`Has_Any_Adjusted_Price = False` for every name), so prices come "
+            "from the Yahoo cache. That covers 97–100% of each formation's "
+            "constituents; the names it cannot serve — Toshiba, Bank of "
+            "Yokohama, NTT Docomo — are delisted or merged, which is the "
+            "residual survivorship bias stated plainly."),
     },
     "vietnam": {
         "num": "05", "title": "Vietnam",
@@ -160,6 +180,11 @@ once before this notebook (builds the git-ignored cache under `data/`)."""))
 from fscore.data.edgar import load_membership
 membership = load_membership(ROOT / "data")""" if m["membership"] else """
 membership = None""")
+    # Most markets load through the shared Yahoo-cache reader; Japan's
+    # statements come from the Bloomberg tree instead, so it overrides.
+    data_load = m.get("loader") or (
+        'fund, prices, sectors, bench = load_cached(MARKET, ROOT / "data")'
+        + membership_load)
 
     # A market scored upstream reads its panel; nothing here recomputes it.
     # `SCORES = None` elsewhere means run_study scores the statement lines.
@@ -186,7 +211,7 @@ MARKET = "{m['market']}"
 YEARS = {m['years']}
 LAG_MONTHS = {m['lag']}  # {m['lag_note']}
 END_CAP = None   # every holding year is complete; nothing is truncated
-fund, prices, sectors, bench = load_cached(MARKET, ROOT / "data"){membership_load}{scores_load}
+{data_load}{scores_load}
 print(f"fundamentals: {{fund.ticker.nunique()}} tickers, "
       f"FY{{fund.fiscal_year.min()}}–FY{{fund.fiscal_year.max()}}")
 print(f"prices: {{prices.ticker.nunique()}} tickers, "
@@ -393,7 +418,7 @@ print("saved to", RESULTS)"""))
 # Fields derived from the config rather than repeated in it: the cache-building
 # script, the market key the notebook passes to `load_cached`, and the one-line
 # explanation of what `report_date` means for that market.
-FETCH_SCRIPT = {"us": "fetch_us_edgar.py", "japan": "fetch_us_japan.py",
+FETCH_SCRIPT = {"us": "fetch_us_edgar.py", "japan": "build_japan_bbg.py",
                 "vietnam": "schema_adapter_util.py"}
 EXTRA_IMPORTS = {
     "us": "", "japan": "",
@@ -402,7 +427,7 @@ EXTRA_IMPORTS = {
 }
 LAG_NOTE = {
     "us": "report_date = true 10-K filing date",
-    "japan": "report_date = fiscal period end (no filing dates on Yahoo)",
+    "japan": "report_date = fiscal period end; the lag is applied on top",
     "vietnam": "report_date = 31 Dec fiscal year end; +6m = 30 Jun, the day before formation",
 }
 

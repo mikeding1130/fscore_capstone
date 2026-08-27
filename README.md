@@ -43,7 +43,7 @@ an order of magnitude of trading that no cost was ever charged for.
 
 | Path | Contents |
 |---|---|
-| `src/fscore/data/` | loaders and point-in-time alignment; `fs_clean.py` (statements → signals, the study's score panel), `edgar.py` (SEC filings), `yahoo.py` (prices), `vietnam.py` (the team pipeline → canonical frames, VN30/VNINDEX), `universe.py` (constituents + sectors) |
+| `src/fscore/data/` | loaders and point-in-time alignment; `score_panel.py` (canonical statements → the study's score panel, shared by the grid and the main study), `edgar.py` (SEC filings; US), `bbg_processed.py` (the Bloomberg tree; Japan), `vietnam.py` (the team pipeline → canonical frames, VN30/VNINDEX), `fs_clean.py` (the superseded team workbook, still read by Vietnam), `yahoo.py` (prices), `universe.py` (constituents + sectors) |
 | `src/fscore/signal/` | the nine Piotroski signals and composite score |
 | `src/fscore/selection/` | fixed-size baskets: F-Score top-k, Monte-Carlo random, liquidity-matched, value, market-cap |
 | `src/fscore/construction/` | EW / long-only GMV / sector-capped GMV (exact SLSQP solve); RMT covariance cleaning |
@@ -52,8 +52,7 @@ an order of magnitude of trading that no cost was ever charged for.
 | `src/fscore/markets.py` | per-market trading constraints (where a short leg is tradable) |
 | `src/fscore/grid.py` | robustness grid runner (basket size × random-sample size × market) |
 | `src/fscore/plotting.py` | figure defaults; every saved chart is 300 dpi |
-| `src/fscore_vietnam/` | the Vietnamese pipeline: crawl → checked, scored panel, plus `schema_adapter.py` mapping it into the canonical schemas. Self-contained; see its README |
-| `scripts/` | data builders (`fetch_us_edgar.py`, `fetch_us_japan.py`), notebook generators, `export_panel.py`, `tie_break_sensitivity.py`, `reconcile_report.py` |
+| `scripts/` | data builders (`fetch_us_edgar.py`, `fetch_us_japan.py`, `build_japan_bbg.py`, `deepen_japan_prices.py`, `build_vietnam_data.py`), notebook generators, `full_period.py`, `eq_offer_sensitivity.py`, `tie_break_sensitivity.py`, `reconcile_report.py`, `export_panel.py` |
 | `notebooks/` | `01`/`02` synthetic demos; `03`/`04`/`05` full studies (US / Japan / Vietnam); `grid/` three robustness notebooks, nine cells each |
 | `data/` | git-ignored cache, rebuilt by the fetch scripts |
 | `results/` | CSVs and 300-dpi figures behind every table and chart in the report |
@@ -88,14 +87,26 @@ python scripts/fetch_us_japan.py
 ```
 
 ```bash
+python scripts/build_japan_bbg.py
+```
+
+```bash
 python src/fscore_vietnam/schema_adapter_util.py
 ```
 
 `fetch_us_edgar.py` pulls US fundamentals from SEC EDGAR (true 10-K filing
-dates, FY2009+) and takes roughly an hour; `fetch_us_japan.py` pulls prices and
-Japanese fundamentals from Yahoo Finance in about forty minutes. The signal
-panel itself ships as a derived CSV — see `results/panel/PROVENANCE.md` for
-what it contains and why the raw vendor fundamentals are not redistributed.
+dates, FY2009+) and takes roughly an hour; `fetch_us_japan.py` pulls prices
+from Yahoo Finance in about forty minutes; `build_japan_bbg.py` turns the
+Bloomberg workbooks under `data/processed/Japan/` into the canonical Japanese
+fundamentals frame in seconds. That last step needs the workbooks, which are
+licensed and git-ignored — **the US half of the study rebuilds end to end from
+public sources with no vendor input at all**. `deepen_japan_prices.py`
+re-fetches the constituents whose cached price history is too short for a 2012
+formation; run it once after `fetch_us_japan.py`.
+
+The signal panel itself ships as a derived CSV — see
+`results/panel/PROVENANCE.md` for what it contains and why the raw vendor
+fundamentals are not redistributed.
 
 Vietnam has no vendor API here. Its pipeline lives in this repository, at
 `src/fscore_vietnam` — it crawls FireAnt, CafeF and TCBS into `fscore.db`,
@@ -105,6 +116,20 @@ into this study's canonical schemas and pulls the VN30 and VNINDEX levels for
 the benchmark comparison. It runs in
 seconds and needs no network — see `data/README.md` for the three conventions
 that differ from the developed pair.
+
+> **`../thesis` is a hard requirement for both Vietnamese notebooks.** Without
+> it, `build_vietnam_data.py` cannot write `vietnam_fundamentals.csv`,
+> `vietnam_sectors.csv`, `vietnam_benchmarks.csv.gz` or
+> `vietnam_score_exclusions.csv`. Notebook `05` then fails on its first cell
+> (`load_cached` needs all four canonical caches), and the Vietnamese grid
+> fails a little later — `load_scores` succeeds, because `vietnam_scores.csv`
+> is shipped, but `exclusion_report` finds no ledger and tries to recompute
+> from an FS_clean workbook Vietnam does not have. The grid now degrades
+> gracefully there, reporting the scored counts it can see rather than
+> failing; notebook `05` still cannot run. The US and Japan notebooks are
+> unaffected. See [VIETNAM_RERUN_NEEDED.md](VIETNAM_RERUN_NEEDED.md) — the
+> Vietnamese artefacts on this branch are `main`'s, and need re-running on a
+> machine that has the sibling repository.
 
 **4. Re-run the analysis.** Each command regenerates the notebooks from their
 source templates and executes them, writing CSVs to `results/` and 300-dpi
@@ -134,16 +159,19 @@ For a non-technical overview of what the system does and why, see
 ## Peer-review grid study (notebooks/grid/)
 
 Following the M5 peer review, `src/fscore/grid.py` re-runs every market across
-the reviewer's grid, scoring the statement panels with this repository's own
-signal code (`fscore.signal.piotroski`) so that the grid and the main study
-rest on one implementation — basket size k ∈ {20, 25, 30} × random draws
-N ∈ {1000, 2000, 5000} × {US, Japan, Vietnam} = **27 grid cells**, figures
-saved at dpi = 300. The cells run as a sweep inside **three notebooks**,
-`us_grid.ipynb`, `japan_grid.ipynb` and `vietnam_grid.ipynb`, rather than the
-separate files they started as; each cell still writes its own
-`{market}_k{k}_mc{N}_*` outputs, and the merge was checked value-by-value
-against the pre-merge results (`scripts/verify_grid_merge.py`, 108/108 CSVs
-identical for the developed pair).
+the reviewer's grid. Each market's grid reads **the same statements its main
+study reads** — SEC EDGAR for the US, the Bloomberg tree for Japan, the team
+pipeline's panel for Vietnam — so the grid varies k and N against the reported
+dataset rather than against a different one, and all three rest on one signal
+implementation (`fscore.signal.piotroski`) — basket size k in {20, 25, 30} x
+random draws N in {1000, 2000, 5000} x {US, Japan, Vietnam} = **27 grid
+cells**, figures saved at dpi = 300. The cells run as a sweep inside **three
+notebooks**, `us_grid.ipynb`, `japan_grid.ipynb` and `vietnam_grid.ipynb`,
+rather than the separate files they started as; each cell still writes its own
+`{market}_k{k}_mc{N}_*` outputs. That merge was checked value-by-value against
+the pre-merge results and reproduced all 108 CSVs exactly for the developed
+pair (`scripts/verify_grid_merge.py`); the developed pair's numbers have since
+moved, but from the later switch of data source, not from the merge.
 Design answers the review's four priorities: explicit random basis (full
 eligible universe, fresh yearly draws, overlap reported), the **direct synergy
 test** D = Sharpe(GMV) − Sharpe(EW) per basket, a strict F ≥ 8 portfolio, and
@@ -153,65 +181,70 @@ reported separately) tested at one pre-registered significance level (**5%**,
 thirteen chained holding years, each a full twelve months, the window shared
 with the main study; covariances use 36 months of daily returns. Aggregated
 outputs in `results/grid/`, consolidated per market in
-`results/grid/{market}_grid_summary.csv` (the notebooks now build this table
-themselves; it reproduces the hand-assembled
-`results/grid_summary_2012_2024.csv` exactly);
+`results/grid/{market}_grid_summary.csv`, which the notebooks build
+themselves — it used to be assembled by hand;
 build/execute with `python scripts/build_grid_notebooks.py execute`.
 
 Headline: the percentile is insensitive to the number of random draws —
-1,000 and 5,000 agree to within two percentage points — but **sensitive to
-basket size**, which is itself a finding: k matters more than Monte-Carlo
-precision, so the grid is read whole rather than at its best cell. The
-consolidated table makes the reason plain: within a given k, every column but
-the percentile and its p-value is *bit-identical* across N, because the same
-seed draws the same first 1,000 baskets whether the run asks for 1,000 or
-5,000. N buys resolution on the p-value, nothing else — the grid is three
-independent settings tested at three precisions, not nine settings.
+1,000 and 5,000 agree to within two percentage points. The consolidated table
+shows why: within a given k, every column but the percentile and its p-value
+is *bit-identical* across N, because the same seed draws the same first 1,000
+baskets whether the run asks for 1,000 or 5,000. N buys resolution on the
+p-value, nothing else — the grid is three independent settings tested at three
+precisions, not nine settings.
 
 | Sharpe percentile vs random (N = 5000) | k = 20 | k = 25 | k = 30 |
 |---|---|---|---|
-| US | 16% | 19% | 36% |
-| Japan | 74% | 53% | 46% |
+| US | 32% | 21% | 47% |
+| Japan | 68% | 69% | 63% |
 | Vietnam | **98%** | **99%** | 90% |
 
-**No cell in the developed pair clears 5%; six of Vietnam's nine do.** The US
-screen sits below the random median at every basket size, below plain universe
-equal weight (0.73–0.81 vs 0.86) and below the value screen alone (0.81);
-Japan straddles the median (0.70–0.74 vs 0.72). Vietnam clears 5% at k = 20
-(p = 0.016) and k = 25 (p = 0.015) at every N, and misses at k = 30
-(p = 0.105) — so the emerging-market result is real against a random basket
-but **not stable across basket size**, exactly the sensitivity the grid was
-built to expose.
+**No cell in the developed pair clears 5%; six of Vietnam's nine do.** Neither
+developed market's F-Score screen beats plain universe equal weight. In the US
+the value screen alone is the strongest thing on the table (0.90-0.99 against
+0.81 for the universe), and ranking *within* it by F-Score gives back most of
+that edge (0.70-0.77). In Japan the value screen is a drag (0.68-0.70 against
+0.75) and the F-Score roughly offsets it (0.76) - so neither market shows the
+screen and the score working in the same direction. Vietnam clears 5% at
+k = 20 (p = 0.016) and k = 25 (p = 0.015) at every N, and misses at k = 30
+(p = 0.105) - the emerging-market result is real against a random basket but
+**not stable across basket size**, exactly the sensitivity the grid was built
+to expose.
+
+The grid draws its random baskets from the **full eligible universe**, which is
+a different null from the main study's (the high-B/M subset). For Japan the two
+disagree - 62.5% here against 96.8% there - and the Japan section below sets
+out why both are correct.
 
 **The Vietnamese edge does not survive the simplest control.** Its universe
-equal-weight portfolio — no screen at all, just hold everything — returns
+equal-weight portfolio - no screen at all, just hold everything - returns
 Sharpe **1.285**, against the F-Score basket's 1.286 / 1.318 / 1.184 at
 k = 20 / 25 / 30. So the F-Score basket beats a *random 25-name basket*
 comfortably and the *whole universe held equally* not at all. Whole-universe
 minimum variance does better still (2.49), on a covariance whose conditioning
-is far weaker than the developed markets' — see `REVIEW_FINDINGS.md` §B6.
+is far weaker than the developed markets' - see `REVIEW_FINDINGS.md` B6.
 
-**The optimisation gain D is not significant anywhere.** It is negative almost
-throughout the developed pair (−0.22 to +0.01) and positive throughout Vietnam
+**The optimisation gain D is not significant anywhere.** It is negative
+throughout the developed pair (-0.21 to -0.05) and positive throughout Vietnam
 (+0.23 to +0.45), but no cell in any market reaches p < 0.05 (best: Vietnam
 k = 25, p = 0.14). Whatever minimum variance does to an F-Score basket, it does
 about as much to a random one.
 
 **And it does not survive the tie-break.** The F-Score is an integer, so the
 top-k cut rarely falls cleanly; the remaining slots go to a seeded random draw
-among firms sharing the cut-off score — on Vietnam at k = 25 that is 14 of 25
+among firms sharing the cut-off score - on Vietnam at k = 25 that is 14 of 25
 slots on average, and all 25 in two of the thirteen formation years.
 `scripts/tie_break_sensitivity.py` re-runs the cell at eight seeds
-(`results/vietnam_tiebreak_sensitivity.csv`): Sharpe spans 1.211–1.356 and the
-p-value 0.010–0.059, with **six of eight seeds clearing 5% and two not**. The
-seed the study uses, 42, produces the lowest p-value of the eight. The
-synergy statistic is equally seed-dependent in level (D 0.170–0.451) but not
-in verdict — its p-value never falls below 0.14. Quote the seed distribution,
-not one draw.
+(`results/vietnam_tiebreak_sensitivity.csv`): Sharpe spans 1.211-1.356 and the
+p-value 0.010-0.059, with **six of eight seeds clearing 5% and two not**. The
+seed the study uses, 42, produces the lowest p-value of the eight. The synergy
+statistic is equally seed-dependent in level (D 0.170-0.451) but not in verdict
+- its p-value never falls below 0.14. Quote the seed distribution, not one
+draw.
 
-**Basket size is not the number of holdings.** At k = 25 the equal-weight
-book holds 25 names by construction, but the minimum-variance book has an
-effective N (1/Σw²) of **5.3 (Japan), 6.6 (US), 11.5 (Vietnam)**. The optimiser
+**Basket size is not the number of holdings.** At k = 25 the equal-weight book
+holds 25 names by construction, but the minimum-variance book has an effective
+N (1/sum w^2) of **5.1 (Japan), 5.9 (US), 11.5 (Vietnam)**. The optimiser
 concentrates into a handful of names; k is an upper bound, and the two
 quantities sit side by side in every summary table.
 
@@ -222,17 +255,26 @@ performance (cost models differ by market and would confound a cross-country
 comparison); turnover and net-of-cost figures are reported separately.
 Every verdict is at the single pre-registered level, **α = 5%**.
 
-| | US (13 formations, Jul 2012 – Jun 2025) | Japan (2 formations, Jul 2023 – Jun 2025) | Vietnam (13 formations, Jul 2012 – Jun 2025) |
+All three markets now span the same thirteen formations, **Jul 2012 - Jun
+2025**: Japan's move onto the Bloomberg statements replaced the two formations
+its old Yahoo cache allowed.
+
+| | US (S&P 500, SEC EDGAR) | Japan (TPX100, Bloomberg) | Vietnam (team pipeline) |
 |---|---|---|---|
-| F-Score EW | 15.9% p.a., Sharpe 0.81 | 18.0% p.a., Sharpe 0.77 | 11.4% p.a., Sharpe 0.44 |
-| vs random baskets | 47th pct, p = 0.53 — n.s. | 75th pct, p = 0.25 — n.s. | 92nd pct, p = 0.085 — n.s. |
-| + GMV | 97th pct, p = 0.030 — **significant** | 67th pct — n.s. | 95th pct, p = 0.050 — n.s. |
-| + sector-GMV | 99.7th pct, p = 0.003 — **significant** | 81st pct — n.s. | 55th pct, p = 0.45 — n.s. |
-| vs market index | 0.81 vs SPY 0.85 | 0.77 vs TOPIX 0.65 | 0.44 vs VN30 0.47, VNINDEX 0.54 |
-| vs pure value screen | 0.81 vs 0.86 | 0.77 vs 0.76 | 0.44 vs 0.20 |
-| Long-short (high − low) | Sharpe −0.11 | −1.32 | not tradable (long-only market) |
-| Effective N (k = 30) | EW 30, GMV 5.6, sector-GMV 8.8 | — | EW 30, GMV 7.0, sector-GMV 8.9 |
-| Turnover (EW) | 0.61 one-way per year | 0.97 | 0.70 |
+| F-Score EW | 15.9% p.a., Sharpe 0.81 | 15.6% p.a., Sharpe 0.76 | 11.4% p.a., Sharpe 0.44 |
+| vs random baskets | 47th pct, p = 0.53 - n.s. | 96.8th pct, p = 0.032 - **significant** | 92nd pct, p = 0.085 - n.s. |
+| + GMV | 97th pct, p = 0.030 - **significant** | 81st pct, p = 0.19 - n.s. | 95th pct, p = 0.050 - n.s. |
+| + sector-GMV | 99.7th pct, p = 0.003 - **significant** | 94th pct, p = 0.060 - n.s. | 55th pct, p = 0.45 - n.s. |
+| vs market index | 0.81 vs SPY 0.85 | 0.76 vs TOPIX 0.68 | 0.44 vs VN30 0.47, VNINDEX 0.54 |
+| vs pure value screen | 0.81 vs 0.86 | 0.76 vs 0.69 | 0.44 vs 0.20 |
+| Long-short (high - low) | Sharpe -0.11 | 0.35 | not tradable (long-only market) |
+| Effective N (k = 30) | EW 30, GMV 5.6, sector-GMV 8.8 | EW 30, GMV 5.0, sector-GMV 7.1 | EW 30, GMV 7.0, sector-GMV 8.9 |
+| Turnover (EW) | 0.61 one-way per year | 0.31 | 0.70 |
+
+The developed pair answer in mirror image: in the US selection does nothing and
+the optimiser clears 5%; in Japan selection clears 5% and the optimiser does
+not. Neither pattern survives the grid's wider random basis (above), and
+Japan's figure carries the EQ_OFFER caveat.
 
 **Selection does nothing; the two significant results come from the
 optimiser, and they concentrate.** The equal-weight F-Score basket sits at
@@ -246,10 +288,29 @@ in all nine US cells; and the winning books hold an effective 5.6 and 8.8
 names against a nominal 30, so their Sharpe is earned by concentration, not
 by the screen.
 
-Japan clears nothing. Its main study now spans two formations — `FS_clean`
-carries no equity line, so the high-B/M universe depends on the fundamentals
-cache, which for Japan begins at FY2021 — and the 2023 formation scores only
-nine names. Those figures are reported for completeness, not as evidence.
+Japan now runs the same thirteen formations, on the Bloomberg statements in
+`data/processed/Japan/` (fiscal years from 2000, book equity from
+`Common_Shareholders_Equity`), and its answer depends on **which random basis
+the question is asked against** — a distinction worth stating carefully,
+because the two numbers look like a contradiction and are not:
+
+| random basis | random mean | F-Score EW | percentile | p |
+|---|---|---|---|---|
+| high-B/M subset (~35 names, main study) | 0.721 | 0.758 | 96.8% | **0.032** |
+| full eligible universe (~85 names, grid) | 0.739 | 0.756 | 62.5% | 0.375 |
+
+Both are correct answers to different questions. Japan's value screen is a
+**drag**: `value_EW` 0.69 against `universe_EW` 0.75. Inside the high-B/M
+subset the F-Score does pick better than chance; but the screen-plus-score
+combination does not beat picking at random from the whole universe. The
+F-Score is largely filling in the hole the value screen digs. Quoting either
+figure alone misrepresents the result.
+
+The US grid tells the reverse story: the value screen there is strongly
+positive (`value_EW` 0.90–0.99 against `universe_EW` 0.81), yet ranking within
+it by F-Score **loses** at every basket size (0.70–0.77), and no cell of
+either market's grid clears 5%. The optimisation gain D = Sharpe(GMV) −
+Sharpe(EW) is negative in all eighteen developed-market cells.
 
 Vietnam clears nothing either, **in this experiment family**, and this is the
 one place where the two families must not be confused. Inside the high-B/M
@@ -266,19 +327,50 @@ figures: one extra formation year moves the main-study p-value from 0.085 to
 capital indices while the portfolios are total-return. `REVIEW_FINDINGS.md`
 lists both, and the rest.
 
+### Within-country robustness: each market over its own full span
+
+`scripts/full_period.py` re-runs each market over the widest span its data
+supports, holding lag, membership, seed, covariance window and Monte Carlo
+draws identical so the window is the only thing that differs. The evaluation
+end stays fixed at June 2025.
+
+| market | headline | full span | F-Score EW Sharpe | percentile |
+|---|---|---|---|---|
+| US | 2012–2024 (13) | 2010–2024 (15) | 0.811 → 0.849 | 47.3% → 43.1% |
+| Japan | 2012–2024 (13) | **2007–2024 (18)** | 0.758 → **0.295** | 96.8% → **96.1%** |
+| Vietnam | 2012–2024 (13) | 2011–2024 (14) | 0.438 → 0.446 | 91.5% → 95.8% |
+
+Japan's row is the informative one. Extending back through the global
+financial crisis **more than halves the absolute Sharpe** (0.758 → 0.295) while
+the placement against random baskets barely moves (96.8th → 96.1st percentile,
+p = 0.032 → 0.039). The whole universe suffered together: the basket's
+*relative* standing survives a crisis that destroyed its absolute return. That
+is a stronger statement than the thirteen-year result, and it is the kind of
+thing a common window chosen for cross-country comparability hides.
+
+The US moves the other way and more quietly: 2010 and 2011 were good years in
+absolute terms and better ones for the random baskets, so all three Sharpe
+ratios rise while all three percentiles fall — sector-GMV's p-value goes from
+0.0033 to 0.020. A six-fold move from two extra years says a meaningful part
+of that headline p-value came from where the window was cut.
+
 ### Measurement sensitivity
 
 `scripts/eq_offer_sensitivity.py` scores the US sample under both
-equity-issuance measures, since Japan can only use the share-count
-substitute: they disagree on **38.2%** of firm-years (mean F-Score 5.59 vs
-5.91, because buybacks mask issuance), yet move Sharpe by 0.013 and the
-percentile by 6 points, leaving every verdict unchanged. That bounds what
-the Japanese substitute can be costing.
+equity-issuance measures, since Japan can only use the share-count substitute
+— the Bloomberg tree ships a `Proceeds_Issuance_Common_Stock` column but it is
+empty in every sheet of both markets. They disagree on **38.2%** of firm-years,
+and the disagreement has a direction: share counts miss issuance that buybacks
+net away, so the substitute is the **generous** measure (mean F-Score 6.08
+against 5.76). It moves Sharpe by 0.025 and the percentile by 14 points,
+leaving the US verdict unchanged — but Japan sits on the generous side of that
+gap, so its percentiles should be read with the bias in mind rather than
+quoted flat.
 
 ### Cross-validation of the signal layer
 
-US and Japanese signals are computed by `fscore.signal.piotroski` from the
-team's FS_clean statements. Scoring the same firm-years independently and
+US and Japanese signals are computed by `fscore.signal.piotroski`. Scoring the
+team's FS_clean  firm-years independently and
 comparing against the collaborators' own implementation agrees on **100%** of
 US firm-years and **99.8%** of Japanese ones (3,369 in total; the residue is
 four cases at the share-count boundary). That comparison is what surfaced a
@@ -304,8 +396,8 @@ book equity, market value, sectors and the two index series.
 | Market | Prices | Fundamentals | Universe membership | Backtest window |
 |---|---|---|---|---|
 | US (main study) | ✅ Yahoo (daily, 2002–) | ✅ SEC EDGAR XBRL (FY2009–, true 10-K filing dates, incl. equity-issuance cash flow) | ✅ historical S&P 500 members per formation date | **formations 2012–2024** (13 full years) |
-| Japan (main study) | ✅ Yahoo (daily, 2002–) | ⚠️ Yahoo (≈5 annual periods; no equity line, so the high-B/M universe starts FY2021) | ⚠️ current Nikkei 225 members | formations 2023–2024 (2 years) |
-| US / Japan (grid) | ✅ Yahoo (daily, 2002–) | ✅ derived panel, `results/panel/` | ⚠️ currently listed symbols | **formations 2012–2024** (13 full years) |
+| Japan (main study) | ⚠️ Yahoo (daily, 2002–); the vendor's own price workbook is **empty**, so it is not used | ⚠️ Bloomberg (FY2000–; book equity from `Common_Shareholders_Equity`, since `Book_Value`, `Historical_Market_Cap` and `Proceeds_Issuance_Common_Stock` are empty) | ✅ historical TPX100 members per formation date (~100 names) | **formations 2012–2024** (13 full years) |
+| US / Japan (grid) | ✅ as the main study | ✅ as the main study, via `fscore.data.score_panel` | ✅ as the main study | **formations 2012–2024** (13 full years) |
 | Vietnam (main study) | ✅ FireAnt, dividend-adjusted daily, 2009– | ✅ team pipeline over FireAnt/CafeF/TCBS (FY2009–, accounting-checked, **scored there**; period-end report dates, 6-month lag) | ⚠️ currently-resolvable symbols, partially survivorship-tilted (125 of 1,371 tickers stop printing before 2026) | **formations 2012–2024** (13 full years) |
 | Vietnam (grid) | ✅ same panel | ✅ same panel, same scores | ⚠️ as above | **formations 2012–2024** (13 full years) |
 
