@@ -21,28 +21,31 @@ Gating checks before backtesting a market on a *commercial* source
 
 ## Vietnam
 
-Vietnam has no vendor API in this study. Its files come from the sibling
-preprocessing repository (`../thesis`), which crawls FireAnt, CafeF and TCBS
-into `fscore.db`, reconciles the three sources, applies accounting checks and
-writes a per-firm-year panel. Two files are shipped by that repository's
-`preprocessing_pipelines/run_grid_export.ipynb`; the rest are built here by
-`python scripts/build_vietnam_data.py`.
+Vietnam has no vendor API in this study. Its files come from the pipeline
+in `src/fscore_vietnam`, which crawls FireAnt, CafeF and TCBS into
+`fscore.db`, reconciles the three sources, applies accounting checks,
+**scores the nine signals**, and writes a per-firm-year panel. That pipeline
+is the source of record for every Vietnamese number here: both studies read
+its score panel and neither recomputes it. Two files come from its
+`run_grid_export.ipynb`; the rest are built by
+`python src/fscore_vietnam/schema_adapter_util.py`, which adds only what that export
+leaves out. The pipeline's own panels live in `data/vietnam_pipeline/`.
 
 | file | contents | written by |
 |---|---|---|
-| `vietnam_prices.csv.gz` | dividend-adjusted daily closes + order-matching volume | sibling repo export |
-| `vietnam_scores.csv` | score panel: nine flags, F-Score, B/M, sector | sibling repo export |
-| `vietnam_fundamentals.csv` | canonical statement lines + FY-end book equity and market cap | `build_vietnam_data.py` |
-| `vietnam_sectors.csv` | ticker → sector | `build_vietnam_data.py` |
-| `vietnam_benchmarks.csv.gz` | VN30 and VNINDEX levels, from `fscore.db` | `build_vietnam_data.py` |
-| `vietnam_exclusions.csv` | what the source holds vs what is scored, by reason | `build_vietnam_data.py` |
+| `vietnam_prices.csv.gz` | dividend-adjusted daily closes + order-matching volume | `src/fscore_vietnam` |
+| `vietnam_scores.csv` | score panel: nine flags, F-Score, B/M, sector | `src/fscore_vietnam` |
+| `vietnam_fundamentals.csv` | FY-end book equity and market value — the B/M sort, nothing else | `schema_adapter_util.py` |
+| `vietnam_sectors.csv` | ticker → sector | `schema_adapter_util.py` |
+| `vietnam_benchmarks.csv.gz` | VN30 and VNINDEX levels, from `fscore.db` | `schema_adapter_util.py` |
+| `vietnam_exclusions.csv` | what the source holds vs what is scored, by reason | `schema_adapter_util.py` |
 
 Three things to know before reading any Vietnamese number:
 
 1. **The reporting lag is 6 months**, not 5 or 3. `report_date` is the
    31 December fiscal year end and the panel carries no filing date, so
    +6 months lands on 30 June — the last day before a 1 July formation, and
-   the same screening date the sibling pipeline uses.
+   the same screening date the pipeline itself screens on.
 2. **The benchmarks are capital indices.** VN30 and VNINDEX exclude cash
    dividends; the portfolios are built on dividend-adjusted closes. The gap
    (~1.5–2% a year) flatters every portfolio-vs-index row.
@@ -62,7 +65,7 @@ The score panel and the exclusion table are `{market}_scores.csv` and
 `{market}_exclusions.csv` in every market. They used to be
 `{market}_fsclean_*`, which read as a claim that every market came through an
 `FS_clean.xlsx` workbook. Vietnam never did — its panel is exported by the
-sibling preprocessing repository and only *read* by `fs_clean.load_scores`,
+pipeline in `src/fscore_vietnam` and only *read* by `fs_clean.load_scores`,
 which is why a missing Vietnamese cache used to die on a `KeyError` deep in
 the workbook lookup. It now raises a message naming the script that rebuilds
 it. The old names are still accepted on read, so an existing cache is not

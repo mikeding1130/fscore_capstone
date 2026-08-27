@@ -31,6 +31,17 @@ REQUIRED_FUND_COLS = [
     "market_cap",
 ]
 
+# The reduced contract for a market whose SCORE PANEL arrives ready-made
+# rather than being computed here (Vietnam: `src/fscore_vietnam` scores its
+# own panel, and this study consumes it). The statement
+# lines exist only to feed `piotroski_signals` and to gate on their own
+# completeness; where the panel is supplied, both jobs are already done
+# upstream, so carrying the lines would mean re-deriving data this repository
+# is not the source of. What remains is what B/M needs and nothing else.
+SCORED_MARKET_FUND_COLS = [
+    "ticker", "fiscal_year", "report_date", "book_value", "market_cap",
+]
+
 
 IMPLEMENTED_MARKETS = ("us", "japan")
 

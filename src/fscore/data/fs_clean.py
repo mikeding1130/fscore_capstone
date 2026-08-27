@@ -44,7 +44,7 @@ import pandas as pd
 # contain, not for one market's source. They used to be called
 # `{market}_fsclean_*`, which read as a claim that every market came through
 # an FS_clean workbook; Vietnam never did (its panel is exported by the
-# sibling preprocessing repository), so the old name was actively
+# pipeline in `src/fscore_vietnam`), so the old name was actively
 # misleading. The legacy names are still ACCEPTED on read so an existing
 # cache is not silently invalidated into an hour of recompute.
 SCORE_PANEL = "{market}_scores.csv"
@@ -55,8 +55,8 @@ LEGACY_EXCLUSIONS = "{market}_fsclean_exclusions.csv"
 # Markets whose panel is SHIPPED rather than computed from a workbook here.
 # `WORKBOOKS` has no entry for them, so a missing cache must say so instead
 # of dying on a KeyError three frames down.
-SHIPPED_PANEL = {"vietnam": "scripts/build_vietnam_data.py, and the "
-                            "`run_grid_export` notebook in ../thesis"}
+SHIPPED_PANEL = {"vietnam": "src/fscore_vietnam/schema_adapter_util.py, and the "
+                            "`run_grid_export` notebook in src/fscore_vietnam"}
 
 WORKBOOKS = {"us": "USA_FS_clean.xlsx", "japan": "Japan_FS_clean.xlsx"}
 SCORE_WORKBOOKS = {"us": "USA_Fscores_nonfinancial.xlsx",

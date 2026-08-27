@@ -383,7 +383,7 @@ def coverage_section(doc):
               font=8,
               caption="Blank/zero reasons are ones that market does not "
                       "record. Vietnam's four extra gates come from the "
-                      "sibling preprocessing pipeline.")
+                      "in-repo preprocessing pipeline.")
 
     doc.add_heading("Universe size per formation", level=2)
     rows = {}

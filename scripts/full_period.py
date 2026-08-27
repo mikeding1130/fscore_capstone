@@ -67,7 +67,7 @@ MARKETS = {
                   bench={"SPY (S&P 500)": "SPY", "VTV (US value ETF)": "VTV"}),
     "japan": dict(lag_months=3, membership=False,
                   bench={"1306.T (TOPIX ETF, JPY)": "1306.T"}),
-    # Vietnam's cache is built by scripts/build_vietnam_data.py. Its lag is 6
+    # Vietnam's cache is built by src/fscore_vietnam/schema_adapter_util.py. Its lag is 6
     # months rather than 3: report_date is the 31 December fiscal year end and
     # +6 months lands on 30 June, the last day before formation.
     "vietnam": dict(lag_months=6, membership=False,

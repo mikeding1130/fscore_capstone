@@ -52,7 +52,8 @@ an order of magnitude of trading that no cost was ever charged for.
 | `src/fscore/markets.py` | per-market trading constraints (where a short leg is tradable) |
 | `src/fscore/grid.py` | robustness grid runner (basket size × random-sample size × market) |
 | `src/fscore/plotting.py` | figure defaults; every saved chart is 300 dpi |
-| `scripts/` | data builders (`fetch_us_edgar.py`, `fetch_us_japan.py`, `build_vietnam_data.py`), notebook generators, `export_panel.py`, `tie_break_sensitivity.py`, `reconcile_report.py` |
+| `src/fscore_vietnam/` | the Vietnamese pipeline: crawl → checked, scored panel, plus `schema_adapter.py` mapping it into the canonical schemas. Self-contained; see its README |
+| `scripts/` | data builders (`fetch_us_edgar.py`, `fetch_us_japan.py`), notebook generators, `export_panel.py`, `tie_break_sensitivity.py`, `reconcile_report.py` |
 | `notebooks/` | `01`/`02` synthetic demos; `03`/`04`/`05` full studies (US / Japan / Vietnam); `grid/` three robustness notebooks, nine cells each |
 | `data/` | git-ignored cache, rebuilt by the fetch scripts |
 | `results/` | CSVs and 300-dpi figures behind every table and chart in the report |
@@ -87,7 +88,7 @@ python scripts/fetch_us_japan.py
 ```
 
 ```bash
-python scripts/build_vietnam_data.py
+python src/fscore_vietnam/schema_adapter_util.py
 ```
 
 `fetch_us_edgar.py` pulls US fundamentals from SEC EDGAR (true 10-K filing
@@ -96,10 +97,12 @@ Japanese fundamentals from Yahoo Finance in about forty minutes. The signal
 panel itself ships as a derived CSV — see `results/panel/PROVENANCE.md` for
 what it contains and why the raw vendor fundamentals are not redistributed.
 
-Vietnam has no vendor API here. `build_vietnam_data.py` maps the sibling
-preprocessing repository's checked panel (`../thesis`, which crawls FireAnt,
-CafeF and TCBS into `fscore.db`) into this study's canonical schemas, and
-pulls the VN30 and VNINDEX levels for the benchmark comparison. It runs in
+Vietnam has no vendor API here. Its pipeline lives in this repository, at
+`src/fscore_vietnam` — it crawls FireAnt, CafeF and TCBS into `fscore.db`,
+reconciles them, checks the accounting, scores the nine signals and writes the
+panels. `schema_adapter_util.py` in that same package maps the checked panel
+into this study's canonical schemas and pulls the VN30 and VNINDEX levels for
+the benchmark comparison. It runs in
 seconds and needs no network — see `data/README.md` for the three conventions
 that differ from the developed pair.
 
@@ -274,17 +277,27 @@ the Japanese substitute can be costing.
 
 ### Cross-validation of the signal layer
 
-Signals are computed by `fscore.signal.piotroski` from the team's FS_clean
-statements. Scoring the same firm-years independently and comparing against
-the collaborators' own implementation agrees on **100%** of US firm-years,
-**99.8%** of Japanese ones (3,369 in total; the residue is four cases at the
-share-count boundary) and **100%** of Vietnamese ones — all 9,482 scored
-firm-years and all nine flags, recomputed by this repository's signal code
-from the canonical statement lines `scripts/build_vietnam_data.py` writes
-(the check is section 0 of `notebooks/05_vietnam_full_study.ipynb`). That comparison is what surfaced a defect in this
-code: the year-on-year deltas had scaled the current year by average assets
-and the prior year by period-end assets, putting a change of denominator
-convention inside every difference. Agreement before the fix was 61% / 66%.
+US and Japanese signals are computed by `fscore.signal.piotroski` from the
+team's FS_clean statements. Scoring the same firm-years independently and
+comparing against the collaborators' own implementation agrees on **100%** of
+US firm-years and **99.8%** of Japanese ones (3,369 in total; the residue is
+four cases at the share-count boundary). That comparison is what surfaced a
+defect in this code: the year-on-year deltas had scaled the current year by
+average assets and the prior year by period-end assets, putting a change of
+denominator convention inside every difference. Agreement before the fix was
+61% / 66%.
+
+**Vietnam is not scored by `fscore.signal`.** The pipeline in
+`src/fscore_vietnam` is the source of record for its nine signals, and both studies
+read that panel — `run_study` takes `scores=`, the grid always did. An
+earlier version recomputed the Vietnamese signals here from rebuilt statement
+lines and agreed with the source on **100%** of firm-years and all nine
+flags; since it never produced a different number, what it actually
+contributed was a second copy that could drift, and it had drifted twice (it
+read the extract *before* the accounting checks, and the main study fed it
+only two fiscal years, silencing the beginning-of-year asset scaling in ΔROA
+and Δturnover). It is gone; `src/fscore/data/vietnam.py` now supplies only
+book equity, market value, sectors and the two index series.
 
 ## Data status
 
@@ -293,8 +306,8 @@ convention inside every difference. Agreement before the fix was 61% / 66%.
 | US (main study) | ✅ Yahoo (daily, 2002–) | ✅ SEC EDGAR XBRL (FY2009–, true 10-K filing dates, incl. equity-issuance cash flow) | ✅ historical S&P 500 members per formation date | **formations 2012–2024** (13 full years) |
 | Japan (main study) | ✅ Yahoo (daily, 2002–) | ⚠️ Yahoo (≈5 annual periods; no equity line, so the high-B/M universe starts FY2021) | ⚠️ current Nikkei 225 members | formations 2023–2024 (2 years) |
 | US / Japan (grid) | ✅ Yahoo (daily, 2002–) | ✅ derived panel, `results/panel/` | ⚠️ currently listed symbols | **formations 2012–2024** (13 full years) |
-| Vietnam (main study) | ✅ FireAnt, dividend-adjusted daily, 2009– | ✅ team pipeline over FireAnt/CafeF/TCBS (FY2009–, accounting-checked; period-end report dates, 6-month lag) | ⚠️ currently-resolvable symbols, partially survivorship-tilted (125 of 1,371 tickers stop printing before 2026) | **formations 2012–2024** (13 full years) |
-| Vietnam (grid) | ✅ same panel | ✅ same panel, pre-screened for tradability by June turnover | ⚠️ as above | **formations 2012–2024** (13 full years) |
+| Vietnam (main study) | ✅ FireAnt, dividend-adjusted daily, 2009– | ✅ team pipeline over FireAnt/CafeF/TCBS (FY2009–, accounting-checked, **scored there**; period-end report dates, 6-month lag) | ⚠️ currently-resolvable symbols, partially survivorship-tilted (125 of 1,371 tickers stop printing before 2026) | **formations 2012–2024** (13 full years) |
+| Vietnam (grid) | ✅ same panel | ✅ same panel, same scores | ⚠️ as above | **formations 2012–2024** (13 full years) |
 
 **Why the sample runs 2012–2024.** It starts in 2012 for the reason below;
 it ends with the July 2024 formation because that is the last one whose full

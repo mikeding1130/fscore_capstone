@@ -6,7 +6,10 @@ For each formation year T (portfolios formed July 1 of year T):
      history up to the formation date, and fiscal-year T-1 statements whose
      `available_date` (report_date + reporting lag) precedes formation;
   2. high-B/M value subset   — top `value_quantile` of book-to-market;
-  3. nine-signal F-Score     — computed within the value subset only;
+  3. nine-signal F-Score     — computed within the value subset only, or read
+     from a `scores=` panel where the market is scored upstream (Vietnam:
+     the pipeline in `src/fscore_vietnam` is the source of record for its
+     own signals, and this study consumes them rather than re-deriving them);
   4. selection @ fixed k     — F-Score top-k vs value / market-cap /
      liquidity-matched controls vs a Monte-Carlo random distribution;
   5. construction            — EW / long-only GMV / sector-capped GMV on an
@@ -49,6 +52,13 @@ STRATEGIES = ["fscore_EW", "fscore_GMV", "fscore_GMVsec", "fscore_LS",
               "value_EW", "mktcap_EW", "liquidity_EW"]
 LONG_SHORT = "fscore_LS"   # dropped in markets where shorting is unavailable
 
+# Statement lines a firm-year must carry in full before it may enter the
+# universe — every input the nine signals read. Only enforced on the columns
+# the snapshot actually has; see `build_universe`.
+FUND_COMPLETENESS = ["total_assets", "net_income", "cfo", "current_assets",
+                     "current_liabilities", "shares_outstanding", "revenue",
+                     "cogs", "book_value", "market_cap"]
+
 
 # ----------------------------------------------------------------------
 # point-in-time building blocks
@@ -59,16 +69,36 @@ def formation_date(year: int) -> pd.Timestamp:
 
 
 def pit_snapshot(fundamentals: pd.DataFrame, year: int,
-                 lag_months: int = 5) -> pd.DataFrame:
-    """Statements usable at the July-1 formation of `year`: fiscal years T-1
-    (must be public, i.e. available_date <= formation) and T-2 (the delta
-    base). Firms missing either year drop out."""
+                 lag_months: int = 5, *,
+                 need_prior: bool = True) -> pd.DataFrame:
+    """Statements usable at the July-1 formation of `year`.
+
+    Scoring year T-1 must be public (available_date <= formation). THREE
+    fiscal years travel, not two: `piotroski_signals` scales each side of
+    ΔROA and Δturnover by its own beginning-of-year assets, so the prior-year
+    ratio needs T-3 total assets. Handing it only T-1 and T-2 made the
+    documented "no t-2 row" fallback fire for every firm in every formation,
+    which put the SAME denominator on both sides of those deltas — ΔROA then
+    collapses to `net_income[t] > net_income[t-1]` and Δturnover to
+    `revenue[t] > revenue[t-1]`, dropping the per-asset scaling that is the
+    point of the signal. Measured on the Vietnamese panel, that changed the
+    composite F-Score for 27.5% of firm-years.
+
+    T-2 is still required (it is the delta base, so a firm without it cannot
+    be scored at all); T-3 is not, and a firm missing it keeps the fallback
+    `piotroski_signals` reports in `.attrs["no_tm2_assets"]`.
+
+    `need_prior=False` returns fiscal T-1 alone, for a market that supplies
+    its score panel ready-made and therefore carries no statement lines.
+    """
     f = apply_reporting_lag(fundamentals, lag_months=lag_months)
     fd = formation_date(year)
     t = f[(f.fiscal_year == year - 1) & (f.available_date <= fd)]
-    tm1 = f[f.fiscal_year == year - 2]
-    common = set(t.ticker) & set(tm1.ticker)
-    snap = pd.concat([t[t.ticker.isin(common)], tm1[tm1.ticker.isin(common)]])
+    if not need_prior:
+        return t.reset_index(drop=True)
+    prior = f[f.fiscal_year.isin([year - 2, year - 3])]
+    common = set(t.ticker) & set(f.loc[f.fiscal_year == year - 2, "ticker"])
+    snap = pd.concat([t[t.ticker.isin(common)], prior[prior.ticker.isin(common)]])
     return snap.reset_index(drop=True)
 
 
@@ -92,10 +122,16 @@ def build_universe(prices: pd.DataFrame, snapshot: pd.DataFrame, year: int,
                   & (stats.last_date >= fd - pd.Timedelta(days=10))]
 
     t = snapshot[snapshot.fiscal_year == year - 1]  # fiscal T-1 rows
-    need = ["total_assets", "net_income", "cfo", "current_assets",
-            "current_liabilities", "shares_outstanding", "revenue", "cogs",
-            "book_value", "market_cap"]
-    t = t.dropna(subset=need)
+    # Completeness gate. Where the snapshot carries the statement lines, every
+    # input the nine signals need must be present, so a firm cannot enter the
+    # universe and then fail to score. Where the market supplies its score
+    # panel ready-made the lines are absent by design — completeness was
+    # enforced upstream — and requiring them here would empty the universe
+    # instead of filtering it. B/M is needed either way and is not optional.
+    missing_bm = [c for c in ("book_value", "market_cap") if c not in t.columns]
+    if missing_bm:
+        raise KeyError(f"fundamentals must carry {missing_bm} to rank on B/M")
+    t = t.dropna(subset=[c for c in FUND_COMPLETENESS if c in t.columns])
     t = t[t.market_cap > 0]
 
     if members is not None:
@@ -140,6 +176,7 @@ class YearResult:
 def run_year(fundamentals, prices, sectors, year, *, k=BASKET_SIZE,
              universe_size=150, value_quantile=0.4, n_mc=1000,
              n_mc_opt=300, lag_months=5, seed=42,
+             scores: pd.DataFrame | None = None,
              membership: dict[int, set[str]] | None = None,
              end_cap: pd.Timestamp | None = None,   # see note in run_study
              detone: bool = False, allow_short: bool = False,
@@ -154,15 +191,42 @@ def run_year(fundamentals, prices, sectors, year, *, k=BASKET_SIZE,
         # it stays available for one-off diagnostics.
         hold_end = min(hold_end, pd.Timestamp(end_cap))
 
-    snap = pit_snapshot(fundamentals, year, lag_months=lag_months)
+    snap = pit_snapshot(fundamentals, year, lag_months=lag_months,
+                        need_prior=scores is None)
+    if scores is not None:
+        # A name may enter the universe only if it can be ranked once it is
+        # there. On the statement-line path that is what `build_universe`'s
+        # completeness gate enforces; with the panel supplied the equivalent
+        # test is simply having a row in it, and it has to be applied HERE,
+        # before the top-150 is cut. Applied afterwards it would leave the
+        # value subset holding names with no score — 60 names of which only
+        # ~45 are ranked — so the basket would be drawn from a smaller and
+        # differently-sized pool than in the markets scored inline.
+        scoreable = set(scores.loc[scores.score_year == year - 1, "ticker"])
+        snap = snap[snap.ticker.isin(scoreable)]
     uni = build_universe(prices, snap, year, n=universe_size,
                          members=membership.get(year) if membership else None)
     value_set = high_bm_subset(uni, quantile=value_quantile)
 
-    scored = piotroski_signals(snap, year=year - 1)
-    n_incomplete = scored.attrs.get("dropped_incomplete", 0)
+    if scores is None:
+        scored = piotroski_signals(snap, year=year - 1)
+        n_incomplete = scored.attrs.get("dropped_incomplete", 0)
+    else:
+        # A market whose panel is scored upstream (Vietnam). Nothing is
+        # recomputed from statement lines here: doing so would fork the score
+        # away from its source of record for no gain. Completeness — all nine
+        # signals present — was enforced when the panel was written, so the
+        # count belongs to that repository's exclusion table, not to this
+        # diagnostic, which reports NaN rather than a misleading zero.
+        scored = scores[scores.score_year == year - 1].copy()
+        n_incomplete = np.nan
     scored = scored[scored.ticker.isin(value_set.ticker)]
-    scored = scored.merge(value_set[["ticker", "bm", "market_cap", "adv"]], on="ticker")
+    # B/M and market cap always come from the universe frame, which priced
+    # them at THIS formation. A supplied panel may carry its own copies; they
+    # are dropped rather than suffixed so there is one of each, from one date.
+    joined = ["bm", "market_cap", "adv"]
+    scored = scored.drop(columns=[c for c in joined if c in scored.columns])
+    scored = scored.merge(value_set[["ticker"] + joined], on="ticker")
 
     k_eff = min(k, len(scored))
     # ties on the integer F-Score are broken at random, seeded per formation
@@ -403,7 +467,12 @@ def run_study(market: str, fundamentals, prices, sectors, years,
               allow_short: bool | None = None, **kw) -> StudyResult:
     """Run the full study for one market. The long-short strategy runs only
     where shorting is available (see `fscore.markets`); Vietnam is long-only,
-    so `fscore_LS` is absent from its results."""
+    so `fscore_LS` is absent from its results.
+
+    Pass `scores=` (a panel keyed by score_year/ticker with an `fscore`
+    column) for a market that is scored upstream; without it the nine signals
+    are computed here from the statement lines in `fundamentals`.
+    """
     if allow_short is None:
         allow_short = allows_shorting(market)
     yearly = [run_year(fundamentals, prices, sectors, y,

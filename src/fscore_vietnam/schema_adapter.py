@@ -1,40 +1,51 @@
-"""Vietnam adapter: the team's preprocessing pipeline -> canonical frames.
+"""Vietnam adapter: consume the preprocessing pipeline. Never re-derive it.
 
-The Vietnamese data does not come from a vendor API. It comes from the
-sibling repository (`../thesis`), which crawls FireAnt/CafeF/TCBS into
-`fscore.db`, reconciles the three sources, applies accounting checks, and
-writes a per-firm-year panel. That repository already ships two of the three
-inputs the grid study needs — `vietnam_prices.csv.gz` and the score panel
-(`vietnam_scores.csv`) — through
-`preprocessing_pipelines/run_grid_export.ipynb`.
+The Vietnamese data does not come from a vendor API. It comes from
+`src/fscore_vietnam`, which crawls FireAnt/CafeF/TCBS into `fscore.db`,
+reconciles the three sources, applies accounting checks, scores the nine
+Piotroski signals, and writes a per-firm-year panel. **That pipeline is the
+source of record for every Vietnamese number in this study.** It ships the
+two panels both studies rank on — `vietnam_prices.csv.gz` and the score
+panel `vietnam_scores.csv` — through its `run_grid_export.ipynb`.
 
-What it does **not** ship is what the MAIN study needs, which is a different
-contract: `pipeline.run_study` forms a high-B/M subset and computes the nine
-signals itself, so it wants raw statement lines, not flags. This module
-closes that gap, and adds the benchmark series the market comparison needs:
+The pipeline was a separate repository (`../thesis`) until it was moved in
+here; only its paths changed, and `fscore_vietnam.paths` now resolves them.
 
-  * `build_fundamentals` — statement lines + book equity + fiscal-year-end
-    market cap, in the canonical `loaders.REQUIRED_FUND_COLS` schema;
+This module therefore does exactly three things, none of which recompute
+anything the pipeline already decided:
+
+  * `build_fundamentals` — book equity and fiscal-year-end market value per
+    firm-year, read from the pipeline's `final_panel.csv`, in the reduced
+    `loaders.SCORED_MARKET_FUND_COLS` schema. This is what the high-B/M
+    subset sorts on and nothing more.
   * `build_sectors` — ticker -> sector, the same map the export used;
   * `fetch_benchmarks` — the VN30 and VNINDEX levels out of `fscore.db`.
 
-Three conventions, stated rather than implied:
+An earlier version rebuilt the eleven raw statement lines here and re-scored
+them with `signal.piotroski`, because `pipeline.run_study` used to insist on
+scoring every market itself. That re-derivation is gone. It reproduced the
+pipeline's panel exactly — all 16,564 jointly scored firm-years, all nine flags
+— so it was never adding a number; what it did add was a second copy of the
+Vietnamese scores that could drift from the first, and it drifted twice: it
+read the extract BEFORE the accounting checks (2,260 firm-years the pipeline
+rejects), and the main study handed it only two fiscal years, which silenced
+the beginning-of-year asset scaling in ΔROA and Δturnover. `run_study` now
+takes `scores=` instead, so both studies rank the same panel.
+
+Two conventions, stated rather than implied:
 
   * `report_date` is the fiscal year end, 31 December. Vietnamese statutory
     deadlines are 90 days for the audited annual report (100 with the usual
-    consolidation extension), but the workbooks carry no filing date, so the
+    consolidation extension), but the panel carries no filing date, so the
     lag is applied at formation by `lag_months` exactly as for Japan. The
     Vietnam notebooks pass **6** — 31 December + 6 months = 30 June, the last
     day before a 1 July formation. That is the most conservative rule that
     still admits the prior fiscal year, and it is the same screening date the
-    sibling pipeline uses, so both branches select on the same information.
-  * `cogs` is derived as `net_sales - gross_profit` rather than taken from
-    the reported cost line. The margin signal is defined on gross profit, and
-    deriving it keeps `(revenue - cogs) / revenue` in `piotroski_signals`
-    identical to the `gross_profit / net_sales` the sibling pipeline scored;
-    the reported line disagrees with the subtraction on ~0.4% of firm-years.
-  * `net_income` is the parent-company share (`net_income_parent`), matching
-    both the sibling pipeline's ROA and the book equity used for B/M.
+    pipeline itself screens on, so both halves select on the same information.
+  * `book_value` / `market_cap` are the pipeline's `book_equity` and
+    `market_equity`, so `book_value / market_cap` here IS the `bm` that panel
+    already carries — the same share count and the same December price it
+    resolved, not a second opinion about either.
 
 **The benchmark is a price index.** VN30 and VNINDEX are capital indices —
 they exclude cash dividends. The portfolios are built on FireAnt's
@@ -53,14 +64,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# Default location of the sibling preprocessing repository. Both repositories
-# are checked out side by side and are slated to merge; the paths are
-# arguments everywhere below so a merge only changes these two constants.
-THESIS_DIR = Path(__file__).resolve().parents[4] / "thesis"
-PIPELINE_DIR = THESIS_DIR / "data" / "preprocessing_pipeline_results"
-DB_PATH = THESIS_DIR / "fscore.db"
+# `paths` is the one module that knows where the pipeline's inputs and
+# outputs sit. Importing from it rather than restating the layout is what
+# keeps this adapter from drifting away from the notebooks beside it — the
+# two used to live in separate checkouts addressed by `../thesis`, and every
+# path below was a second opinion about where the panels were.
+from . import paths as vn_paths
 
-SECTOR_MAP_CSV = THESIS_DIR / "data" / "tickers_non_financials_sectors.csv"
+PIPELINE_DIR = vn_paths.RESULTS
+DB_PATH = vn_paths.DB           # ~1.7 GB, not in the repo; see paths.py
+
+SECTOR_MAP_CSV = vn_paths.DATA / "tickers_non_financials_sectors.csv"
 SECTOR_FIELD = "Sector_EN"
 SECTOR_UNKNOWN = "Unknown"
 
@@ -69,38 +83,25 @@ FY_END = (12, 31)          # Vietnamese fiscal years end 31 December
 
 
 def build_fundamentals(pipeline_dir: str | Path = PIPELINE_DIR) -> pd.DataFrame:
-    """Canonical annual fundamentals for Vietnam.
+    """Book equity and fiscal-year-end market value per firm-year.
 
-    Statement lines come from `f_score_fields_extract_corrected.csv` (the
-    accounting-checked extract); book equity, share count and fiscal-year-end
-    market value come from `book_to_market_panel.csv`, which is where the
-    sibling pipeline resolved the share-count question (issued vs outstanding
-    vs par-implied) and priced the year end.
+    Read straight from the pipeline's `final_panel.csv` — the file the
+    pipeline treats as its own output of record, already restricted to the
+    firm-years that passed its accounting checks. `book_equity` and
+    `market_equity` are where it resolved the share-count question (issued vs
+    outstanding vs par-implied) and priced the December close.
+
+    No statement lines and no signals: this study reads Vietnamese scores, it
+    does not compute them (see the module docstring).
     """
     d = Path(pipeline_dir)
-    fx = pd.read_csv(d / "f_score_fields_extract_corrected.csv")
-    bm = pd.read_csv(d / "book_to_market_panel.csv")
-
-    f = fx.merge(bm[["symbol", "period", "book_equity", "shares",
-                     "market_equity"]],
-                 on=["symbol", "period"], how="left")
+    fp = pd.read_csv(d / "final_panel.csv",
+                     usecols=["symbol", "period", "book_equity", "market_equity"])
     out = pd.DataFrame({
-        "ticker": f["symbol"],
-        "fiscal_year": f["period"].astype(int),
-        "total_assets": f["total_assets"],
-        "net_income": f["net_income_parent"],
-        "cfo": f["cfo"],
-        "long_term_debt": f["long_term_debt"],
-        "current_assets": f["current_assets"],
-        "current_liabilities": f["current_liabilities"],
-        "shares_outstanding": f["shares"],
-        "equity_issued": f["stock_issuance_proceeds"],
-        "revenue": f["net_sales"],
-        # see module docstring: derived so the margin signal matches the
-        # sibling pipeline's gross_profit / net_sales exactly
-        "cogs": f["net_sales"] - f["gross_profit"],
-        "book_value": f["book_equity"],
-        "market_cap": f["market_equity"],
+        "ticker": fp["symbol"],
+        "fiscal_year": fp["period"].astype(int),
+        "book_value": fp["book_equity"],
+        "market_cap": fp["market_equity"],
     })
     month, day = FY_END
     out["report_date"] = pd.to_datetime(
@@ -119,7 +120,7 @@ def build_fundamentals(pipeline_dir: str | Path = PIPELINE_DIR) -> pd.DataFrame:
 
 
 def build_sectors(sector_csv: str | Path = SECTOR_MAP_CSV) -> pd.Series:
-    """ticker -> sector, from the sibling repository's crawled classification.
+    """ticker -> sector, from the pipeline's crawled classification.
 
     The label is NOT point-in-time: it is the classification as crawled,
     applied to every year of a ticker's history. It only enters the
@@ -158,15 +159,25 @@ def fetch_benchmarks(db_path: str | Path = DB_PATH,
     return px
 
 
+EXCLUSIONS_FILENAME = "vietnam_exclusions.csv"
+
+
 def build_cache(out_dir: str | Path = "data",
                 pipeline_dir: str | Path = PIPELINE_DIR,
                 db_path: str | Path = DB_PATH,
-                sector_csv: str | Path = SECTOR_MAP_CSV) -> dict[str, Path]:
+                sector_csv: str | Path = SECTOR_MAP_CSV,
+                exclusions_filename: str = EXCLUSIONS_FILENAME) -> dict[str, Path]:
     """Write the three files `yahoo.load_cached('vietnam')` still needs.
 
-    The fourth, `vietnam_prices.csv.gz`, is already shipped by the sibling
-    repository's export notebook and is left untouched — rebuilding it here
+    The fourth, `vietnam_prices.csv.gz`, is already written by the
+    pipeline's export notebook and is left untouched — rebuilding it here
     would fork the price convention the score panel was built against.
+
+    `exclusions_filename` has to match the name `fs_clean.exclusion_report`
+    looks for, or the grid notebook's accounting cell finds nothing. It is a
+    parameter rather than an import so that this package depends on nothing
+    in `fscore`; `schema_adapter_util` passes the authoritative value and
+    asserts on it, which is the one place already coupled to both.
     """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -186,9 +197,8 @@ def build_cache(out_dir: str | Path = "data",
 
     # written under the name `fs_clean.exclusion_report` reads, so the grid
     # notebook's accounting cell is the same code in all three markets
-    from .fs_clean import EXCLUSIONS
     drops = build_exclusions(pipeline_dir)
-    drop_path = out / EXCLUSIONS.format(market="vietnam")
+    drop_path = out / exclusions_filename
     drops.to_csv(drop_path, index=False)
 
     return {"fundamentals": fund_path, "sectors": sec_path,
@@ -235,7 +245,7 @@ def build_exclusions(pipeline_dir: str | Path = PIPELINE_DIR) -> pd.DataFrame:
     are counted separately rather than folded into the three above, because
     they remove far more than the three do:
 
-      * accounting checks (the sibling repository's reconciliation of three
+      * accounting checks (the pipeline's reconciliation of three
         vendors) reject a firm-year outright;
       * no book-to-market, no June turnover, or no formation price;
       * `tradeable` false — the liquidity screen, which is the single largest

@@ -100,21 +100,25 @@ CFG = {
             "version of either index exists in the source database, so this "
             "is disclosed rather than corrected."),
         "ff": "vietnam", "usd_convert": False,
-        "crosscheck_panel": True,
+        "shipped_scores": True,
         "years": "list(range(2012, 2025))", "lag": 6, "membership": False,
         "data_note": (
-            "Statements come from the team's own preprocessing repository "
-            "(`../thesis`), which crawls FireAnt, CafeF and TCBS into "
-            "`fscore.db`, reconciles the three, applies accounting checks and "
-            "writes a per-firm-year panel — FY2009 onward, the span the "
-            "Vietnamese sources cover. `scripts/build_vietnam_data.py` maps "
-            "that panel into this study's canonical schema. `report_date` is "
+            "Everything Vietnamese comes from the team's own preprocessing "
+            "pipeline in `src/fscore_vietnam`, which crawls FireAnt, CafeF and TCBS "
+            "into `fscore.db`, reconciles the three, applies accounting "
+            "checks, **scores the nine signals**, and writes a per-firm-year "
+            "panel — FY2009 onward, the span the Vietnamese sources cover. "
+            "This notebook READS that score panel; it does not recompute it, "
+            "so there is one Vietnamese F-Score and one place it is defined. "
+            "`src/fscore_vietnam/schema_adapter_util.py` adds only what the export omits "
+            "— book equity and year-end market value for the B/M sort, the "
+            "sector map, and the VN30/VNINDEX levels. `report_date` is "
             "the 31 December fiscal year end (the panel carries no filing "
             "date), and the reporting lag is **6 months**: 31 December + 6 "
             "months = 30 June, the last day before a 1 July formation. That "
             "is the most conservative rule that still admits the prior fiscal "
-            "year, and it is the same screening date the sibling pipeline "
-            "uses, so both branches select on the same information. "
+            "year, and it is the same screening date the pipeline itself "
+            "screens on, so both halves select on the same information. "
             "Formations run **July 2012 .. July 2024** — thirteen chained "
             "holding years, the same calendar as the US and Japan. The price "
             "cache reaches August 2026 and would support a July 2025 "
@@ -157,6 +161,14 @@ from fscore.data.edgar import load_membership
 membership = load_membership(ROOT / "data")""" if m["membership"] else """
 membership = None""")
 
+    # A market scored upstream reads its panel; nothing here recomputes it.
+    # `SCORES = None` elsewhere means run_study scores the statement lines.
+    scores_load = ("""
+from fscore.data.fs_clean import load_scores
+SCORES = load_scores(MARKET, ROOT / "data")   # scored upstream, see fscore_vietnam.schema_adapter"""
+                   if m.get("shipped_scores") else """
+SCORES = None""")
+
     cells.append(code(f"""import sys, pathlib
 ROOT = pathlib.Path.cwd().parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -174,58 +186,16 @@ MARKET = "{m['market']}"
 YEARS = {m['years']}
 LAG_MONTHS = {m['lag']}  # {m['lag_note']}
 END_CAP = None   # every holding year is complete; nothing is truncated
-fund, prices, sectors, bench = load_cached(MARKET, ROOT / "data"){membership_load}
+fund, prices, sectors, bench = load_cached(MARKET, ROOT / "data"){membership_load}{scores_load}
 print(f"fundamentals: {{fund.ticker.nunique()}} tickers, "
       f"FY{{fund.fiscal_year.min()}}–FY{{fund.fiscal_year.max()}}")
 print(f"prices: {{prices.ticker.nunique()}} tickers, "
       f"{{prices.date.min():%Y-%m-%d}} → {{prices.date.max():%Y-%m-%d}}")
+if SCORES is not None:
+    print(f"scores: {{len(SCORES):,}} firm-years, "
+          f"{{int(SCORES.score_year.min())}}–{{int(SCORES.score_year.max())}} "
+          f"(read, not recomputed)")
 fund.groupby("fiscal_year").size().rename("statements")"""))
-
-    if m.get("crosscheck_panel"):
-        # Vietnam is the one market whose signals arrive already computed, by
-        # a different codebase. Recomputing them here from the canonical
-        # statement lines is what lets its results sit beside the other two.
-        cells.append(md("""### 0. Cross-validation of the signal layer
-
-The Vietnamese nine signals arrive from the team's preprocessing repository
-already computed. The US and Japanese ones are computed by
-`fscore.signal.piotroski` in this repository. Putting the three markets in one
-table is only legitimate if they rest on the same scoring rules, so this
-section recomputes every Vietnamese firm-year with *this* repository's signal
-code, from the canonical statement lines `scripts/build_vietnam_data.py`
-writes, and compares flag by flag against the shipped panel.
-
-Two conventions had to be matched for this to be a real test rather than a
-tautology: `net_income` is the parent-company share, and `cogs` is derived as
-`net_sales - gross_profit` so that `(revenue - cogs) / revenue` here is the
-same quantity as the `gross_profit / net_sales` margin the sibling pipeline
-scored. Everything else — beginning-of-year asset scaling on both sides of
-every delta, the cash-flow equity-issuance measure, dropping firm-years whose
-nine signals are not all computable — is this repository's own rule set."""))
-
-        cells.append(code("""from fscore.data.fs_clean import score_panel_path
-from fscore.signal.piotroski import piotroski_signals
-
-shipped = pd.read_csv(score_panel_path(MARKET, ROOT / "data"))
-rows = []
-for y in range(int(shipped.score_year.min()), int(shipped.score_year.max()) + 1):
-    snap = fund[fund.fiscal_year.isin([y, y - 1, y - 2])]
-    scored_y = piotroski_signals(snap, year=y)
-    if len(scored_y):
-        rows.append(scored_y.assign(score_year=y))
-ours = pd.concat(rows, ignore_index=True)
-
-PAIRS = [("roa_pos", "f_roa"), ("cfo_pos", "f_cfo"), ("delta_roa_pos", "f_droa"),
-         ("accruals_ok", "f_accrual"), ("delta_leverage_down", "f_dlever"),
-         ("delta_liquidity_up", "f_dliquid"), ("no_issuance", "f_eq_offer"),
-         ("delta_margin_up", "f_dmargin"), ("delta_turnover_up", "f_dturn")]
-both = ours.merge(shipped, on=["ticker", "score_year"], suffixes=("_ours", "_theirs"))
-agree = pd.Series({"composite F-Score": (both.fscore_ours == both.fscore_theirs).mean(),
-                   **{ours_c: (both[ours_c] == both[theirs_c]).mean()
-                      for ours_c, theirs_c in PAIRS}}, name="agreement")
-print(f"{len(both):,} of {len(shipped):,} shipped firm-years matched on (ticker, score_year)")
-print(f"mean absolute F-Score difference: {(both.fscore_ours - both.fscore_theirs).abs().mean():.4f}")
-(100 * agree).round(2).to_frame("% agreement")"""))
 
     cells.append(md("""### 1. Run the multi-year study
 
@@ -235,13 +205,19 @@ by B/M (~60 names); baskets of 30; 1,000 random baskets under EW (300 pushed
 through the GMV / sector-GMV pipeline)."""))
 
     cells.append(md("""**Data discarded before any test.** A firm-year is scored
-only when all nine signals are computable from the fiscal T-1 and T-2
-statements; partial scores are dropped rather than summed over whatever is
-available (an incomplete score is not a low score). The per-formation count
-is `dropped_incomplete_signals` in the diagnostics below."""))
+only when all nine signals are computable; partial scores are dropped rather
+than summed over whatever is available (an incomplete score is not a low
+score). Where the signals are computed here, that needs three fiscal years —
+T-1 and T-2 for the levels, T-3 total assets for the prior year's scaling —
+and the per-formation count is `dropped_incomplete_signals` in the
+diagnostics below. Where the score panel arrives ready-made (`SCORES`), the
+same rule was applied upstream and the count lives in that market's own
+exclusion table, so the diagnostic reads `NaN` rather than a misleading
+zero."""))
 
     cells.append(code("""study = run_study(MARKET, fund, prices, sectors, YEARS,
                   n_mc=1000, n_mc_opt=300, lag_months=LAG_MONTHS,
+                  scores=SCORES,   # None => signals computed from `fund`
                   membership=membership, end_cap=END_CAP, seed=42,
                   detone=False)   # RMT denoise only — detoning is
                                   # out of scope for this study
@@ -418,7 +394,7 @@ print("saved to", RESULTS)"""))
 # script, the market key the notebook passes to `load_cached`, and the one-line
 # explanation of what `report_date` means for that market.
 FETCH_SCRIPT = {"us": "fetch_us_edgar.py", "japan": "fetch_us_japan.py",
-                "vietnam": "build_vietnam_data.py"}
+                "vietnam": "schema_adapter_util.py"}
 EXTRA_IMPORTS = {
     "us": "", "japan": "",
     # Ken French has no Vietnamese factor set; the notebook builds one

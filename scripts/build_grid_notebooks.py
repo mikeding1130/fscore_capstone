@@ -65,7 +65,7 @@ COVERAGE_NOTE = {
                 "died inside the sample are present — but names the vendor no longer\n"
                 "resolves at all leave no trace to count, so the residual is\n"
                 "unquantified. And B/M coverage is **complete by construction** (the\n"
-                "sibling pipeline requires it before export), so `value_fallback` is\n"
+                "pipeline requires it before export), so `value_fallback` is\n"
                 "false in every formation and the value control here is a real\n"
                 "30-name high-B/M basket in every year — unlike Japan's."),
 }
@@ -78,16 +78,17 @@ SOURCE_NOTE = {
     "japan": "Signals come from the team's FS_clean statements, scored by this repository's\nown signal code (`fscore.signal.piotroski`, unit-tested, beginning-of-year\nasset scaling on both sides of every delta); prices from the cached Yahoo\ndata.",
     "vietnam": (
         "Signals and prices come from the team's own preprocessing repository "
-        "(`../thesis`), which crawls FireAnt, CafeF and TCBS into "
+        "(`src/fscore_vietnam`), which crawls FireAnt, CafeF and TCBS into "
         "`fscore.db`, reconciles the three, applies accounting checks and "
         "writes a per-firm-year panel; `run_grid_export.ipynb` there ships "
         "the score panel and the dividend-adjusted price panel this notebook "
-        "reads. The nine flags in that panel were **independently reproduced "
-        "by this repository's own signal code** from the canonical statement "
-        "lines (`scripts/build_vietnam_data.py`, checked in "
-        "`notebooks/05_vietnam_full_study.ipynb`): all 9,482 scored firm-years "
-        "and all nine flags agree exactly, so the Vietnamese numbers rest on "
-        "the same scoring implementation as the other two markets. One gate "
+        "reads. Those flags are used **as shipped** — this repository does "
+        "not re-score Vietnam, in this notebook or in the main study, so "
+        "there is one Vietnamese F-Score and one place it is defined. A "
+        "recomputation from rebuilt statement lines did once run here and "
+        "agreed on all 9,482 scored firm-years and all nine flags; it was "
+        "removed for producing a second copy of a number it never changed. "
+        "One gate "
         "has no counterpart in the US or Japan: the Vietnamese panel is "
         "pre-screened for tradability by June turnover, which removes about a "
         "third of the scoreable firm-years before this notebook sees them "

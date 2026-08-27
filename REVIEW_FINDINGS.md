@@ -245,7 +245,7 @@ basket at every k. So the Vietnamese screen beats a random 25-name basket and
 does not beat simply holding everything. Any claim that the optimiser and the
 score work well together has to explain both controls first.
 
-One caveat about the control itself, from the sibling repository's own export
+One caveat about the control itself, from the pipeline's own export
 notebook: the whole-universe covariance runs at `q = n_assets / n_obs > 1` in
 every formation year from 2013, because names that listed inside the 36-month
 window truncate the estimation sample. Denoising keeps the matrix finite, but
