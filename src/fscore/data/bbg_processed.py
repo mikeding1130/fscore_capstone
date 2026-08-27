@@ -139,10 +139,20 @@ def load_fundamentals(market: str, data_dir: pathlib.Path,
 def constituents(market: str, data_dir: pathlib.Path,
                  years: list[int] | range) -> dict[int, set[str]]:
     """Index membership as of each formation year, from the financials sheets
-    themselves (the `historical_constituents/` files repeat the same list)."""
+    themselves (the `historical_constituents/` files repeat the same list).
+
+    A year with no sheet is omitted rather than raised on: callers that probe
+    for the widest feasible span legitimately ask about years beyond the
+    workbook, and a missing year is an answer ("no membership known"), not an
+    error. Requesting a specific year and getting nothing back is still
+    visible — the key is simply absent.
+    """
     out = {}
     for year in years:
-        d = _sheet(data_dir, market, "t", year)
+        try:
+            d = _sheet(data_dir, market, "t", year)
+        except ValueError:                     # no worksheet for that year
+            continue
         out[year] = {t for t in (to_yahoo(b, market) for b in d.BBG_Ticker)
                      if t is not None}
     return out

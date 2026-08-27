@@ -65,7 +65,10 @@ EVAL_END = pd.Timestamp("2025-06-30")
 MARKETS = {
     "us":    dict(lag_months=1, membership=True,
                   bench={"SPY (S&P 500)": "SPY", "VTV (US value ETF)": "VTV"}),
-    "japan": dict(lag_months=3, membership=False,
+    # Japan reads the Bloomberg frame, not the Yahoo cache `load_cached` would
+    # give it: the study moved sources and this check has to move with it, or
+    # it reports a robustness result for a study nobody ran.
+    "japan": dict(lag_months=3, membership="bbg",
                   bench={"1306.T (TOPIX ETF, JPY)": "1306.T"}),
     # Vietnam's cache is built by scripts/build_vietnam_data.py. Its lag is 6
     # months rather than 3: report_date is the 31 December fiscal year end and
@@ -73,7 +76,36 @@ MARKETS = {
     "vietnam": dict(lag_months=6, membership=False,
                     bench={"VN30 (VN30 index, VND)": "VN30"}),
 }
-PROBE_FROM, PROBE_TO = 2005, 2027
+PROBE_FROM, PROBE_TO = 2003, 2027
+
+
+def load_market(market: str):
+    """(fundamentals, prices, sectors, membership) from the source this
+    market's main study reads.
+
+    `load_cached` is right for the US and Vietnam, whose caches are what their
+    notebooks load. It is wrong for Japan, which now scores from the Bloomberg
+    statements: pointing this check at the stale Yahoo cache would silently
+    report a two-formation span for a study that runs thirteen.
+    """
+    data = ROOT / "data"
+    if market == "japan":
+        from fscore.data.bbg_processed import constituents
+        fund = pd.read_csv(data / "japan_bbg_fundamentals.csv",
+                           parse_dates=["report_date"])
+        prices = pd.read_csv(data / "japan_prices.csv.gz", parse_dates=["date"])
+        sectors = pd.read_csv(data / "japan_sectors.csv").set_index("ticker")["sector"]
+        # Membership is needed for every year the probe might reach, not just
+        # the headline window, or the early formations look empty.
+        members = constituents(market, data, range(PROBE_FROM, PROBE_TO))
+        return fund, prices, sectors, members
+
+    fund, prices, sectors, _bench = load_cached(market, ROOT / "data")
+    members = None
+    if MARKETS[market]["membership"] is True:
+        from fscore.data.edgar import load_membership
+        members = load_membership(ROOT / "data")
+    return fund, prices, sectors, members
 
 
 def feasible_years(market: str, fund, prices, membership, lag_months: int,
@@ -141,11 +173,7 @@ def headline_placement(market: str) -> pd.DataFrame | None:
 
 
 def run_market(market: str, cfg: dict) -> dict | None:
-    fund, prices, sectors, bench = load_cached(market, ROOT / "data")
-    membership = None
-    if cfg["membership"]:
-        from fscore.data.edgar import load_membership
-        membership = load_membership(ROOT / "data")
+    fund, prices, sectors, membership = load_market(market)
 
     years, probe = feasible_years(market, fund, prices, membership,
                                   cfg["lag_months"])
