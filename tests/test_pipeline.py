@@ -231,14 +231,21 @@ def test_fscore_ties_are_broken_at_random_not_by_value():
     assert tie_break_slots(scored, 4) == 3
 
 
-def test_vietnam_is_long_only():
-    """Shorting is not available in Vietnam, so the long-short strategy must
-    not appear in its results — an untradable book would overstate them."""
-    from fscore.markets import allows_shorting
+def test_vietnam_runs_long_short_but_flagged_hypothetical():
+    """Vietnam RUNS the long-short book so the high-minus-low spread is
+    measured in all three markets on one design — but shorting is not
+    available on HOSE/HNX, so it must stay flagged as a hypothetical. The two
+    questions are separate predicates, and a market may not answer True to
+    "run it" while silently answering True to "it is tradable"."""
+    from fscore.markets import allows_shorting, is_hypothetical_short
 
     assert allows_shorting("us") and allows_shorting("japan")
-    assert not allows_shorting("vietnam")
+    assert allows_shorting("vietnam") and allows_shorting("vn")
+    assert is_hypothetical_short("vietnam") and is_hypothetical_short("vn")
+    # the developed pair really can borrow; nothing there is hypothetical
+    assert not is_hypothetical_short("us") and not is_hypothetical_short("japan")
     assert not allows_shorting("some-unlisted-market")   # conservative default
+    assert not is_hypothetical_short("some-unlisted-market")
 
 
 def test_long_short_book_is_dollar_neutral():

@@ -166,8 +166,8 @@ The proposal's complete loop on **real data**: point-in-time universe →
 high-B/M value subset → 9-signal F-Score → fixed-basket selection (F-Score vs
 value / market-cap / liquidity-matched / random Monte-Carlo) → EW / GMV /
 sector-capped GMV on RMT-cleaned covariances, plus a dollar-neutral
-long-short book (long top-k scores, short bottom-k) where shorting is
-available → annual-rebalance backtest →
+long-short book (long top-k scores, short bottom-k){m['ls_headline']}
+→ annual-rebalance backtest →
 placement in the random distribution → investable benchmarks → Fama-French
 three-factor regression.
 
@@ -293,6 +293,9 @@ ax.set_title(f"{{MARKET.upper()}} — F-Score strategies vs controls and benchma
              f"{{start:%b %Y}} – {{end:%b %Y}}")
 ax.legend(fontsize=8, ncol=2); plt.tight_layout()
 save_fig(f"{{MARKET}}_nav_vs_benchmarks", directory=RESULTS_FIG); plt.show()"""))
+
+    if m.get("ls_caveat"):
+        cells.append(md(m["ls_caveat"]))
 
     cells.append(code("""tbl = study.summary()      # gross first; costs follow separately
 for name, r in bench_rets.items():
@@ -420,6 +423,30 @@ print("saved to", RESULTS)"""))
 # explanation of what `report_date` means for that market.
 FETCH_SCRIPT = {"us": "fetch_us_edgar.py", "japan": "build_japan_bbg.py",
                 "vietnam": "schema_adapter_util.py"}
+# The long-short book runs in all three markets so the high-minus-low spread
+# is measured on one design everywhere. It does not MEAN the same thing in
+# all three: the developed pair can borrow, Vietnam cannot, so Vietnam gets a
+# clause in the header and a caveat cell beside the table that prints the row.
+LS_HEADLINE = {
+    "us": ", tradable here",
+    "japan": ", tradable here",
+    "vietnam": " — reported here as a\nhypothetical, since HOSE/HNX offers no stock borrow",
+}
+LS_CAVEAT = {
+    "us": "", "japan": "",
+    "vietnam": """**`fscore_LS` is a hypothetical in this market — read it as a
+decomposition, not as a portfolio.** Short selling of ordinary shares is not
+available to investors on HOSE/HNX, so no one could have run the row below.
+The study used to omit it in Vietnam for exactly that reason. It is reported
+now because omitting it removed the high-minus-low spread from the one market
+where the long-only result is strongest, and that spread is what separates
+two explanations of that result: a ranking whose *low* end also carries
+information, or long books riding the same market beta the VNINDEX row
+carries. The short leg is charged the same 1% annual borrow fee as the US and
+Japan — generous for a market that does not offer the borrow at all — and its
+`net_sharpe` therefore remains an upper bound rather than an estimate. Every
+other row on this table is long-only and tradable as stated.""",
+}
 EXTRA_IMPORTS = {
     "us": "", "japan": "",
     # Ken French has no Vietnamese factor set; the notebook builds one
@@ -435,7 +462,8 @@ LAG_NOTE = {
 def build_full(market: str):
     m = dict(CFG[market], market=market,
              fetch_script=FETCH_SCRIPT[market], lag_note=LAG_NOTE[market],
-             extra_imports=EXTRA_IMPORTS[market])
+             extra_imports=EXTRA_IMPORTS[market],
+             ls_headline=LS_HEADLINE[market], ls_caveat=LS_CAVEAT[market])
     nb = nbf.v4.new_notebook(metadata={
         "kernelspec": {"display_name": "Python 3", "language": "python",
                        "name": "python3"},

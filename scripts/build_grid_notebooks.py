@@ -25,6 +25,7 @@ Run:  python scripts/build_grid_notebooks.py             # build
 """
 import pathlib
 import sys
+import textwrap
 
 import nbformat as nbf
 
@@ -70,6 +71,38 @@ COVERAGE_NOTE = {
                 "30-name high-B/M basket in every year — unlike Japan's."),
 }
 
+# The long-short book now runs in all three markets, but it does not mean the
+# same thing in all three. Two pieces: a short clause for the semicolon-list of
+# design points, and — where the leg is untradable — a paragraph of its own
+# after that list. Keeping them per market means the Vietnamese notebook cannot
+# print the row without printing the caveat attached to it.
+LS_CLAUSE = {
+    "us": ("a dollar-neutral long-short book (long top-k scores, short "
+           "bottom-k, charged both legs' trading costs plus a stock-borrow "
+           "fee), tradable here"),
+    "japan": ("a dollar-neutral long-short book (long top-k scores, short "
+              "bottom-k, charged both legs' trading costs plus a stock-borrow "
+              "fee), tradable here"),
+    "vietnam": ("a dollar-neutral long-short book (long top-k scores, short "
+                "bottom-k, charged both legs' trading costs plus a stock-borrow "
+                "fee), run here as a hypothetical — see below"),
+}
+LS_CAVEAT = {
+    "us": "", "japan": "",
+    "vietnam": """**On `fscore_LS` in Vietnam — a decomposition, not a portfolio.** Short
+selling of ordinary shares is not available to investors on HOSE/HNX, so
+nobody could have run the long-short row this notebook reports. The study
+used to omit it here for that reason. It is reported now because omitting it
+removed the high-minus-low spread from the one market where the long-only
+result is strongest, and that spread is what separates two explanations of
+that result: a ranking whose *low* end also carries information, or long
+books riding the same market beta the universe controls carry. The short leg
+is charged the same 1% annual borrow fee as the US and Japan — generous for a
+market that does not offer the borrow at all — so its net figures are an
+upper bound rather than an estimate. Every other strategy in this notebook is
+long-only and implementable as described.""",
+}
+
 SOURCE_NOTE = {
     # Pre-wrapped to the notebook's own line width: these strings are
     # interpolated into markdown that is committed, so re-wrapping them here
@@ -106,8 +139,7 @@ measure, because the vendor's issuance column is empty.""",
         "has no counterpart in the US or Japan: the Vietnamese panel is "
         "pre-screened for tradability by June turnover, which removes about a "
         "third of the scoreable firm-years before this notebook sees them "
-        "(section 0). Short selling of ordinary shares is not available on "
-        "HOSE/HNX, so `fscore_LS` is absent here by design, not by omission."),
+        "(section 0)."),
 }
 
 
@@ -149,6 +181,11 @@ except FileNotFoundError:
 def cells(market: str):
     title, years = MARKETS[market]
     md, code = nbf.v4.new_markdown_cell, nbf.v4.new_code_cell
+    # wrapped to the surrounding prose's width so the committed markdown does
+    # not gain one 1,400-character line where every other line is ~76
+    ls_clause = textwrap.fill(LS_CLAUSE[market], width=76)
+    # blank-line-delimited so a market with no caveat leaves no stray gap
+    ls_caveat = f"\n{LS_CAVEAT[market]}\n" if LS_CAVEAT[market] else ""
     return [
         md(f"""# {title} — F-Score grid study: k ∈ {{20, 25, 30}} × N ∈ {{1000, 2000, 5000}}
 
@@ -170,15 +207,12 @@ are estimated on 36 months of daily returns ending the day before formation.
 Peer-review design points (see `src/fscore/grid.py` docstring): explicit
 random basis = full eligible universe with fresh draws each year and reported
 overlap; a non-F-Score random control; strict F ≥ 8 portfolio; universe EW and
-plain universe minimum-variance controls; a dollar-neutral long-short book
-(long top-k scores, short bottom-k, charged both legs' trading costs plus a
-stock-borrow fee) wherever shorting is available — Vietnam runs long-only,
-so `fscore_LS` is simply absent there; denoised (not detoned) GMV; primary
+plain universe minimum-variance controls; {ls_clause}; denoised (not detoned) GMV; primary
 measure fixed in advance = the GROSS Sharpe ratio (rf = 0), with turnover and
 net-of-cost figures reported separately; and the synergy test
 D = Sharpe(GMV) − Sharpe(EW) computed per basket. All figures are saved at
 dpi = 300.
-
+{ls_caveat}
 **On seeding.** Every cell calls `run_grid(..., seed=42)`, and every random
 draw inside it is made by a locally constructed
 `np.random.default_rng(seed + year)` — the global NumPy generator is never

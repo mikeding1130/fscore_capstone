@@ -39,6 +39,7 @@ import pandas as pd
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from fscore.data.fs_clean import SHIPPED_PANEL, load_scores   # noqa: E402
 from fscore.data.loaders import high_bm_subset            # noqa: E402
 from fscore.data.yahoo import load_cached                 # noqa: E402
 from fscore.pipeline import (build_universe, formation_date,  # noqa: E402
@@ -80,13 +81,22 @@ PROBE_FROM, PROBE_TO = 2003, 2027
 
 
 def load_market(market: str):
-    """(fundamentals, prices, sectors, membership) from the source this
-    market's main study reads.
+    """(fundamentals, prices, sectors, membership, scores) from the source
+    this market's main study reads.
 
     `load_cached` is right for the US and Vietnam, whose caches are what their
     notebooks load. It is wrong for Japan, which now scores from the Bloomberg
     statements: pointing this check at the stale Yahoo cache would silently
     report a two-formation span for a study that runs thirteen.
+
+    `scores` is the other half of the same principle. A market whose panel is
+    scored upstream ships no statement lines at all — Vietnam's fundamentals
+    cache carries book equity and market cap and nothing else, because the
+    nine signals were computed in `src/fscore_vietnam` and exported. Handing
+    that cache to the inline scorer does not produce a different answer, it
+    raises `KeyError: total_assets`. The panel is read here and passed to
+    `run_study`, exactly as `notebooks/05_vietnam_full_study.ipynb` does, so
+    the robustness check runs against the study it is checking.
     """
     data = ROOT / "data"
     if market == "japan":
@@ -98,24 +108,36 @@ def load_market(market: str):
         # Membership is needed for every year the probe might reach, not just
         # the headline window, or the early formations look empty.
         members = constituents(market, data, range(PROBE_FROM, PROBE_TO))
-        return fund, prices, sectors, members
+        return fund, prices, sectors, members, None
 
     fund, prices, sectors, _bench = load_cached(market, ROOT / "data")
     members = None
     if MARKETS[market]["membership"] is True:
         from fscore.data.edgar import load_membership
         members = load_membership(ROOT / "data")
-    return fund, prices, sectors, members
+    scores = load_scores(market, data) if market in SHIPPED_PANEL else None
+    return fund, prices, sectors, members, scores
 
 
 def feasible_years(market: str, fund, prices, membership, lag_months: int,
-                   k: int = BASKET_SIZE) -> tuple[list[int], pd.DataFrame]:
+                   k: int = BASKET_SIZE,
+                   scores: pd.DataFrame | None = None) -> tuple[list[int], pd.DataFrame]:
     """The formation years this market's data can actually support, within the
-    study's fixed evaluation end (see EVAL_END)."""
+    study's fixed evaluation end (see EVAL_END).
+
+    The screen mirrors `run_year`'s exactly — including, for a market with a
+    shipped score panel, dropping names that panel cannot rank BEFORE the
+    top-150 cut. A probe that screened more loosely than the run would call a
+    year feasible that the run then cannot fill.
+    """
     price_end = min(prices.date.max(), EVAL_END)
     rows = []
     for y in range(PROBE_FROM, PROBE_TO):
-        snap = pit_snapshot(fund, y, lag_months=lag_months)
+        snap = pit_snapshot(fund, y, lag_months=lag_months,
+                            need_prior=scores is None)
+        if scores is not None:
+            scoreable = set(scores.loc[scores.score_year == y - 1, "ticker"])
+            snap = snap[snap.ticker.isin(scoreable)]
         if snap.empty:
             rows.append({"year": y, "value_names": 0, "usable": False,
                          "reason": "no point-in-time statements"})
@@ -173,10 +195,10 @@ def headline_placement(market: str) -> pd.DataFrame | None:
 
 
 def run_market(market: str, cfg: dict) -> dict | None:
-    fund, prices, sectors, membership = load_market(market)
+    fund, prices, sectors, membership, scores = load_market(market)
 
     years, probe = feasible_years(market, fund, prices, membership,
-                                  cfg["lag_months"])
+                                  cfg["lag_months"], scores=scores)
     probe.to_csv(RESULTS / f"{market}_fullperiod_feasibility.csv", index=False)
     if not years:
         print(f"  {market}: no feasible formation year - skipped")
@@ -192,7 +214,7 @@ def run_market(market: str, cfg: dict) -> dict | None:
 
     study = run_study(market, fund, prices, sectors, years,
                       lag_months=cfg["lag_months"], membership=membership,
-                      **RUN_KW)
+                      scores=scores, **RUN_KW)
 
     summ = study.summary()
     summ.to_csv(RESULTS / f"{market}_fullperiod_summary.csv")

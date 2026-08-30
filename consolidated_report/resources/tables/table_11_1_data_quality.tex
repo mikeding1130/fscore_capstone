@@ -15,10 +15,10 @@ Price source & Yahoo Finance, adjusted closes & Yahoo Finance, adjusted closes &
 Market proxy & SPY, VTV (total-return ETFs) & 1306.T, EWJV (total-return ETFs) & \textbf{VN30, VNINDEX (capital indices, no dividends)}$^{*}$ \\
 Upstream liquidity screen & None & None & \textbf{June-turnover tradability gate, applied before this repository sees the data}$^{*}$ \\
 Delisted coverage & Partial & Partial & Partial: 125 of 1,371 tickers stop printing before 2026 \\
-Short selling & Available & Available & Not available; Vietnam runs long-only \\
+Short selling & Available & Available & \textbf{Not available; the Vietnamese long-short row is a hypothetical}$^{*}$ \\
 \bottomrule
 \end{tabular}
 \begin{minipage}{\linewidth}\vspace{4pt}\footnotesize
-Starred cells are the differences that survive the unified pipeline because they live upstream of it. Three matter for interpretation: only the United States has genuine point-in-time report dates, the other two using a fiscal period end plus a fixed lag; Vietnam's benchmarks exclude cash dividends, which flatters every portfolio-against-index comparison by roughly 1.5--2\% a year; and Vietnam's panel arrives already liquidity-screened, a filter the other two markets never receive.
+Starred cells are the differences that survive the unified pipeline because they live upstream of it. Three matter for interpretation: only the United States has genuine point-in-time report dates, the other two using a fiscal period end plus a fixed lag; Vietnam's benchmarks exclude cash dividends, which flatters every portfolio-against-index comparison by roughly 1.5--2\% a year; and Vietnam's panel arrives already liquidity-screened, a filter the other two markets never receive. The fourth starred cell is not an upstream difference but a design decision: the long-short row IS reported for Vietnam so the high-minus-low spread is measured in all three markets, and it is starred because no investor there could have traded it.
 \end{minipage}
 \end{table}

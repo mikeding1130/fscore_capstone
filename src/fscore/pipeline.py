@@ -50,7 +50,7 @@ COV_MONTHS = 36
 
 STRATEGIES = ["fscore_EW", "fscore_GMV", "fscore_GMVsec", "fscore_LS",
               "value_EW", "mktcap_EW", "liquidity_EW"]
-LONG_SHORT = "fscore_LS"   # dropped in markets where shorting is unavailable
+LONG_SHORT = "fscore_LS"   # dropped only where `markets` says not to run it
 
 # Statement lines a firm-year must carry in full before it may enter the
 # universe — every input the nine signals read. Only enforced on the columns
@@ -344,6 +344,18 @@ def run_year(fundamentals, prices, sectors, year, *, k=BASKET_SIZE,
             # carried at their last traded price, not dropped
             "delisted_in_holding_year": int(hold.attrs.get("delisted", 0)),
             "k": k_eff,
+            # Whether the spread book actually got a short leg this year.
+            # head(k) and tail(k) of a pool smaller than 2k share names, and
+            # the overlap is removed from the short side — so a pool that
+            # shrinks below 2k silently thins or empties the leg instead of
+            # failing. Vietnam's value subset is 60 against k = 30, exactly
+            # 2k with no margin, which is why this is recorded rather than
+            # assumed. (REVIEW_FINDINGS A7.)
+            "long_short_run": bool(allow_short
+                                   and len(weights.get(LONG_SHORT, []))),
+            "short_leg_names": (int((weights[LONG_SHORT] < 0).sum())
+                                if allow_short and LONG_SHORT in weights
+                                else np.nan),
             "fscore_mean": float(scored.fscore.mean()),
             "fscore_basket_min": int(scored[scored.ticker.isin(baskets["fscore"])].fscore.min())
             if k_eff else np.nan}
@@ -465,9 +477,12 @@ class StudyResult:
 
 def run_study(market: str, fundamentals, prices, sectors, years,
               allow_short: bool | None = None, **kw) -> StudyResult:
-    """Run the full study for one market. The long-short strategy runs only
-    where shorting is available (see `fscore.markets`); Vietnam is long-only,
-    so `fscore_LS` is absent from its results.
+    """Run the full study for one market. Whether the long-short book runs is
+    read off `fscore.markets`; all three markets run it, so `fscore_LS` is
+    comparable across them. Vietnam's leg is NOT tradable — short selling of
+    ordinary shares is unavailable on HOSE/HNX — and
+    `markets.is_hypothetical_short` flags it so the reports that print the
+    row label it as a decomposition rather than a portfolio.
 
     Pass `scores=` (a panel keyed by score_year/ticker with an `fscore`
     column) for a market that is scored upstream; without it the nine signals

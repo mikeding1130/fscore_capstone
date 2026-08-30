@@ -19,10 +19,15 @@ Peer-review responses baked into the design:
     alongside the top-k rule (its size varies and is reported).
   * A long-short spread portfolio (`fscore_LS`): long the top-k scores,
     short the bottom-k, equally weighted and dollar-neutral, charged the
-    trading costs of both legs plus a stock-borrow fee. It is only run where
-    shorting is available — `fscore.markets` marks Vietnam long-only, so the
-    strategy is absent from its output rather than reported as an untradable
-    hypothetical.
+    trading costs of both legs plus a stock-borrow fee. It now runs in all
+    three markets, so the high-minus-low spread — the cleanest read on
+    whether the ranking's low end carries information — is measured on one
+    design everywhere instead of being missing in exactly the market where
+    the long-only result looks strongest. In Vietnam it is a HYPOTHETICAL:
+    short selling of ordinary shares is not available on HOSE/HNX, so
+    `fscore.markets.is_hypothetical_short` flags it and every report that
+    prints the row has to say so. Read it as a decomposition of the signal,
+    not as a portfolio anyone could run.
   * One significance level, fixed in advance: ALPHA = 5%. Every test — the
     Monte-Carlo placements and the synergy test alike — is judged at p < 0.05
     and nothing else; p = 0.06 is reported as not significant.
@@ -80,7 +85,7 @@ MIN_EST_DAYS = None
 MC_TURNOVER_SAMPLE = 500   # draws whose names are kept to estimate MC turnover
 STRATEGIES = ["fscore_EW", "fscore_GMV", "fscore_GMVsec", "fscore_high_EW",
               "fscore_LS", "value_EW", "universe_EW", "universe_GMV"]
-LONG_SHORT = "fscore_LS"   # dropped in markets where shorting is unavailable
+LONG_SHORT = "fscore_LS"   # dropped only where `markets` says not to run it
 
 
 def formation_date(year: int) -> pd.Timestamp:
@@ -451,10 +456,12 @@ def run_grid(market, scores, prices, sectors, years, *, k, n_mc,
              n_gmv=300, seed=42, allow_short: bool | None = None,
              delisting_return: float = 0.0, cov_months: int = COV_MONTHS,
              min_est_days: int | None = MIN_EST_DAYS) -> GridStudy:
-    """Run the grid for one market. The long-short strategy is included only
-    where shorting is actually available (see `fscore.markets`): Vietnam and
-    Malaysia run long-only, so `fscore_LS` is absent from their output rather
-    than reported as an untradable hypothetical."""
+    """Run the grid for one market. Whether the long-short book runs is read
+    off `fscore.markets`: the US, Japan and Vietnam all run it, so
+    `fscore_LS` is comparable across the three. Vietnam's leg is not
+    tradable — `is_hypothetical_short("vietnam")` is True and callers that
+    report the row must label it. A market the registry does not know still
+    defaults to long-only."""
     if allow_short is None:
         allow_short = allows_shorting(market)
     yearly = [run_grid_year(scores, prices, sectors, y, k=k, n_mc=n_mc,

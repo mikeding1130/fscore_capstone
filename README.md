@@ -117,19 +117,18 @@ the benchmark comparison. It runs in
 seconds and needs no network — see `data/README.md` for the three conventions
 that differ from the developed pair.
 
-> **`../thesis` is a hard requirement for both Vietnamese notebooks.** Without
-> it, `build_vietnam_data.py` cannot write `vietnam_fundamentals.csv`,
-> `vietnam_sectors.csv`, `vietnam_benchmarks.csv.gz` or
-> `vietnam_score_exclusions.csv`. Notebook `05` then fails on its first cell
-> (`load_cached` needs all four canonical caches), and the Vietnamese grid
-> fails a little later — `load_scores` succeeds, because `vietnam_scores.csv`
-> is shipped, but `exclusion_report` finds no ledger and tries to recompute
-> from an FS_clean workbook Vietnam does not have. The grid now degrades
-> gracefully there, reporting the scored counts it can see rather than
-> failing; notebook `05` still cannot run. The US and Japan notebooks are
-> unaffected. See [VIETNAM_RERUN_NEEDED.md](VIETNAM_RERUN_NEEDED.md) — the
-> Vietnamese artefacts on this branch are `main`'s, and need re-running on a
-> machine that has the sibling repository.
+> **Only two of the Vietnamese caches are committed.** `data/` tracks
+> `vietnam_prices.csv.gz` and `vietnam_scores.csv`; `vietnam_fundamentals.csv`,
+> `vietnam_sectors.csv`, `vietnam_benchmarks.csv.gz` and
+> `vietnam_exclusions.csv` are git-ignored build products of the sibling
+> preprocessing repository, so a fresh clone does not have them and
+> **`../thesis` is required to rebuild them**. Without them notebook `05` fails
+> on its first cell (`load_cached` needs all four canonical caches), while the
+> grid gets further: `load_scores` succeeds on the shipped panel, and
+> `exclusion_report` falls back to reporting the scored counts it can see
+> rather than failing. The US and Japan notebooks are unaffected either way.
+> Both Vietnamese notebooks in this repository were executed with all six
+> caches present — see their committed outputs.
 
 **4. Re-run the analysis.** Each command regenerates the notebooks from their
 source templates and executes them, writing CSVs to `results/` and 300-dpi
@@ -261,15 +260,26 @@ its old Yahoo cache allowed.
 
 | | US (S&P 500, SEC EDGAR) | Japan (TPX100, Bloomberg) | Vietnam (team pipeline) |
 |---|---|---|---|
-| F-Score EW | 15.9% p.a., Sharpe 0.81 | 15.6% p.a., Sharpe 0.76 | 11.4% p.a., Sharpe 0.44 |
-| vs random baskets | 47th pct, p = 0.53 - n.s. | 96.8th pct, p = 0.032 - **significant** | 92nd pct, p = 0.085 - n.s. |
-| + GMV | 97th pct, p = 0.030 - **significant** | 81st pct, p = 0.19 - n.s. | 95th pct, p = 0.050 - n.s. |
-| + sector-GMV | 99.7th pct, p = 0.003 - **significant** | 94th pct, p = 0.060 - n.s. | 55th pct, p = 0.45 - n.s. |
-| vs market index | 0.81 vs SPY 0.85 | 0.76 vs TOPIX 0.68 | 0.44 vs VN30 0.47, VNINDEX 0.54 |
-| vs pure value screen | 0.81 vs 0.86 | 0.76 vs 0.69 | 0.44 vs 0.20 |
-| Long-short (high - low) | Sharpe -0.11 | 0.35 | not tradable (long-only market) |
-| Effective N (k = 30) | EW 30, GMV 5.6, sector-GMV 8.8 | EW 30, GMV 5.0, sector-GMV 7.1 | EW 30, GMV 7.0, sector-GMV 8.9 |
-| Turnover (EW) | 0.61 one-way per year | 0.31 | 0.70 |
+| F-Score EW | 15.9% p.a., Sharpe 0.81 | 15.6% p.a., Sharpe 0.76 | 13.8% p.a., Sharpe 0.54 |
+| vs random baskets | 47th pct, p = 0.53 - n.s. | 96.8th pct, p = 0.032 - **significant** | 96.3rd pct, p = 0.037 - **significant** |
+| + GMV | 97th pct, p = 0.030 - **significant** | 81st pct, p = 0.19 - n.s. | 78th pct, p = 0.22 - n.s. |
+| + sector-GMV | 99.7th pct, p = 0.003 - **significant** | 94th pct, p = 0.060 - n.s. | 48th pct, p = 0.52 - n.s. |
+| vs market index | 0.81 vs SPY 0.85 | 0.76 vs TOPIX 0.68 | 0.54 vs VN30 0.47, VNINDEX 0.54 |
+| vs pure value screen | 0.81 vs 0.86 | 0.76 vs 0.69 | 0.54 vs 0.35 |
+| Long-short (high - low) | Sharpe -0.11 | 0.35 | 0.45 — **hypothetical, not tradable** |
+| Effective N (k = 30) | EW 30, GMV 5.6, sector-GMV 8.8 | EW 30, GMV 5.0, sector-GMV 7.1 | EW 30, GMV 7.4, sector-GMV 9.2 |
+| Turnover (EW) | 0.61 one-way per year | 0.31 | 0.71 |
+
+**The Vietnamese long-short row is a hypothetical.** Short selling of ordinary
+shares is not available to investors on HOSE/HNX. The study reports the row
+anyway, so the high-minus-low spread is measured in all three markets on one
+design rather than being missing from the market where the long-only result is
+strongest — but it is a decomposition of the signal, not a portfolio anyone
+could have held, and the 1% borrow fee charged to it is generous for a market
+that offers no borrow at all. `fscore.markets.is_hypothetical_short` marks it
+and every generated report prints the caveat beside the number. It is the only
+market where the spread survives costs (net Sharpe 0.33, against -0.29 in the
+US and 0.24 in Japan).
 
 The developed pair answer in mirror image: in the US selection does nothing and
 the optimiser clears 5%; in Japan selection clears 5% and the optimiser does
@@ -312,20 +322,30 @@ it by F-Score **loses** at every basket size (0.70–0.77), and no cell of
 either market's grid clears 5%. The optimisation gain D = Sharpe(GMV) −
 Sharpe(EW) is negative in all eighteen developed-market cells.
 
-Vietnam clears nothing either, **in this experiment family**, and this is the
-one place where the two families must not be confused. Inside the high-B/M
-subset of the 150 most liquid names, the F-Score basket returns 11.4% a year
-at Sharpe 0.44 — below both the VN30 (0.47) and the all-share VNINDEX (0.54),
-though comfortably above the pure book-to-market screen (0.20), which in this
-market is where the damage is: Vietnamese deep value returned 5.7% a year with
-a 77% drawdown. The *grid* study, which ranks the same score across the whole
-scoreable universe instead of a value subset, reaches Sharpe 1.32 and p = 0.015
-at k = 25. Both numbers are correct; they answer different questions, and the
-report has to name which. Two further cautions belong with the Vietnamese
-figures: one extra formation year moves the main-study p-value from 0.085 to
-0.042 (`results/robustness_full_period.csv`), and the benchmark rows are
-capital indices while the portfolios are total-return. `REVIEW_FINDINGS.md`
-lists both, and the rest.
+Vietnam is the exception, and it is also the place where the two families must
+not be confused. Inside the high-B/M subset of the 150 most liquid names, the
+F-Score basket returns 13.8% a year at Sharpe 0.54 — clearing 5% against random
+baskets (96.3rd percentile, p = 0.037), above the VN30 (0.47), level with the
+all-share VNINDEX (0.54), and well above the pure book-to-market screen (0.35),
+which in this market is where the damage is: Vietnamese deep value returned
+9.4% a year with a 77% drawdown. The *grid* study, which ranks the same score
+across the whole scoreable universe instead of a value subset, reaches Sharpe
+1.32 and p = 0.015 at k = 25. Both numbers are correct; they answer different
+questions, and the report has to name which.
+
+The long-short spread is the sharpest split between Vietnam and the developed
+pair. Its high-minus-low book earns 5.9% a year at Sharpe 0.45 in the main
+study and 0.41–0.46 across all nine grid cells, holding up net of both legs'
+costs and the borrow fee (0.30–0.36) — where the same book is 0.05 gross and
+−0.14 net in the US, 0.17 and −0.05 in Japan. It is the one market where the
+bottom of the ranking carries information the top does not already supply. It
+is also, and this is not a footnote, **not tradable**: see the caveat under the
+headline table. Two further cautions belong with the Vietnamese figures: the
+data support no formation year outside the headline window, so the full-span
+robustness run is the headline run reported for the record rather than an
+independent check (`results/robustness_full_period.csv`), and the benchmark
+rows are capital indices while the portfolios are total-return.
+`REVIEW_FINDINGS.md` lists both, and the rest.
 
 ### Within-country robustness: each market over its own full span
 
@@ -338,7 +358,7 @@ end stays fixed at June 2025.
 |---|---|---|---|---|
 | US | 2012–2024 (13) | 2010–2024 (15) | 0.811 → 0.849 | 47.3% → 43.1% |
 | Japan | 2012–2024 (13) | **2007–2024 (18)** | 0.758 → **0.295** | 96.8% → **96.1%** |
-| Vietnam | 2012–2024 (13) | 2011–2024 (14) | 0.438 → 0.446 | 91.5% → 95.8% |
+| Vietnam | 2012–2024 (13) | 2012–2024 (13) — no extra year | 0.537 → 0.537 | 96.3% → 96.3% |
 
 Japan's row is the informative one. Extending back through the global
 financial crisis **more than halves the absolute Sharpe** (0.758 → 0.295) while

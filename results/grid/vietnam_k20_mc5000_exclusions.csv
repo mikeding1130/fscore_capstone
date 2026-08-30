@@ -1,2 +1,2 @@
-,rows_in_source,dropped_failed_accounting_checks,dropped_no_prior_year,dropped_incomplete_signals,dropped_unresolved_identifier,dropped_no_book_to_market,dropped_no_june_turnover,dropped_no_formation_price,dropped_below_liquidity_gate,scored,pct_scored
-vietnam,23493.0,2260.0,2388.0,2281.0,0.0,1691.0,50.0,45.0,5296.0,9482.0,40.36
+,rows_in_source,dropped_failed_accounting_checks,dropped_no_prior_year,dropped_incomplete_signals,dropped_unresolved_identifier,dropped_no_book_to_market,dropped_no_june_turnover,dropped_no_formation_price,dropped_below_liquidity_gate,scored,eq_offer_from_cashflow,eq_offer_from_shares,no_tm2_assets
+total,23493,2260,2388,2281,0,1691,50,45,5296,9482,0,0,0

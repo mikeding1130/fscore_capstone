@@ -25,6 +25,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from fscore.data.fs_clean import exclusions_path       # noqa: E402
+from fscore.markets import is_hypothetical_short      # noqa: E402
 
 RESULTS = ROOT / "results"
 GRID = RESULTS / "grid"
@@ -372,18 +373,32 @@ def coverage_section(doc):
             if not cached:
                 continue
             tot = read(cached[0], index_col=0).iloc[0]
-        rows[LABEL[m]] = {"firm-years in source": int(tot.rows_in_source),
+        # `rows_in_source` exists only in the sibling pipeline's own ledger.
+        # The grid writes this table by summing its per-year exclusion frame,
+        # which carries counts and no source total, so the denominator is
+        # rebuilt from them: what reached the screen = scored + every gate
+        # that removed a row. Same arithmetic the grid notebook's section 0
+        # prints. Without this the section raises rather than degrading, which
+        # is what stopped this script running at all once the grid's table
+        # changed shape.
+        dropped = [c for c in tot.index if c.startswith("dropped_")]
+        held = (float(tot.rows_in_source) if "rows_in_source" in tot.index
+                else float(tot.scored) + sum(float(tot[c]) for c in dropped))
+        rows[LABEL[m]] = {"firm-years reaching the screen": int(held),
                           "scored": int(tot.scored),
-                          "% scored": round(100 * tot.scored / tot.rows_in_source, 1),
+                          "% scored": round(100 * tot.scored / held, 1) if held else 0.0,
                           **{c.replace("dropped_", "dropped: ").replace("_", " "):
-                             int(tot[c]) for c in tot.index
-                             if c.startswith("dropped_")}}
+                             int(tot[c]) for c in dropped}}
     if rows:
         table(doc, pd.DataFrame(rows).T.fillna(0), index_header="market",
               font=8,
               caption="Blank/zero reasons are ones that market does not "
                       "record. Vietnam's four extra gates come from the "
-                      "in-repo preprocessing pipeline.")
+                      "in-repo preprocessing pipeline, and it is the only "
+                      "market whose ledger counts source rows before those "
+                      "gates — the other two are counted from the stage the "
+                      "grid can see, so the three denominators are not the "
+                      "same measurement.")
 
     doc.add_heading("Universe size per formation", level=2)
     rows = {}
@@ -517,16 +532,23 @@ def findings_section(doc):
             f"best investable benchmark, {best} "
             f"({s_.loc[best, 'sharpe']:.2f}).")
 
-    # --- long-short
+    # --- long-short. Reported in all three markets, but tradable in only two:
+    # a Vietnamese short leg cannot be borrowed, so the bullet has to say so
+    # in the same sentence as the number rather than in a footnote.
     for m in MARKETS:
         s_ = read(GRID / f"{m}_k30_mc5000_summary.csv", index_col=0)
         if s_ is not None and "fscore_LS" in s_.index:
+            caveat = (" This is a HYPOTHETICAL: short selling of ordinary "
+                      "shares is not available on HOSE/HNX, so the row "
+                      "decomposes the signal rather than describing a "
+                      "portfolio anyone could hold."
+                      if is_hypothetical_short(m) else "")
             items.append(
                 f"{LABEL[m]}, long-short: the dollar-neutral high-minus-low "
                 f"book returns {s_.loc['fscore_LS', 'ann_return']:.1%} a year "
                 f"gross (Sharpe {s_.loc['fscore_LS', 'sharpe']:.2f}), "
                 f"{s_.loc['fscore_LS', 'net_sharpe']:.2f} net of both legs' "
-                f"costs and the borrow fee.")
+                f"costs and the borrow fee.{caveat}")
 
     # --- factor alpha
     for m in MARKETS:
@@ -703,7 +725,7 @@ def build(out_path: pathlib.Path) -> pathlib.Path:
             "statements": "team pipeline over FireAnt/CafeF/TCBS",
             "reporting lag": "6 months after 31 Dec year end",
             "universe (grid)": "303–856 names",
-            "shorting": "no — long-only by market rule",
+            "shorting": "run, but NOT tradable — fscore_LS is a hypothetical",
             "benchmarks": "VN30, VNINDEX (capital indices)",
             "factors": "locally built 2×3 sort",
         },

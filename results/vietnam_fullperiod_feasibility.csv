@@ -1,11 +1,13 @@
 year,value_names,usable,reason,universe
+2003,0,False,no point-in-time statements,
+2004,0,False,no point-in-time statements,
 2005,0,False,no point-in-time statements,
 2006,0,False,no point-in-time statements,
 2007,0,False,no point-in-time statements,
 2008,0,False,no point-in-time statements,
 2009,0,False,no point-in-time statements,
 2010,0,False,no point-in-time statements,
-2011,60,True,,150.0
+2011,0,False,no point-in-time statements,
 2012,60,True,,150.0
 2013,60,True,,150.0
 2014,60,True,,150.0

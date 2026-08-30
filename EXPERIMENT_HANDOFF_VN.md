@@ -57,9 +57,9 @@ Covariance cho GMV sử dụng 36 tháng daily returns kết thúc trước form
 
 - `notebooks/grid/us_grid.ipynb`: grid US.
 - `notebooks/grid/japan_grid.ipynb`: grid Japan.
-- `notebooks/grid/vietnam_k25_mc1000.ipynb`: thực nghiệm Vietnam hiện tại.
+- `notebooks/grid/vietnam_grid.ipynb`: grid Vietnam — chín cell giống hệt US/Japan, thay cho notebook `vietnam_k25_mc1000.ipynb` cũ.
 - `src/fscore/grid.py`: triển khai `run_grid_year()` và `run_grid()`.
-- `scripts/build_grid_notebooks.py`: tạo/chạy US/Japan grid notebooks.
+- `scripts/build_grid_notebooks.py`: tạo/chạy grid notebooks cho cả ba thị trường.
 
 ### Sensitivity/robustness khác
 
@@ -91,7 +91,7 @@ Do random main study nằm trong value subset, phép so sánh dự kiến đo ph
 
 Grid xếp hạng trên toàn bộ scoreable universe có đủ price history, không lọc high-B/M trước khi chọn F-Score.
 
-Grid US/Japan:
+Grid (cả ba thị trường):
 
 - Basket size `k in {20, 25, 30}`.
 - Monte Carlo draws `N in {1000, 2000, 5000}`.
@@ -100,7 +100,7 @@ Grid US/Japan:
 - Có thêm strict `F >= 8` portfolio.
 - Có full-universe EW/GMV controls.
 - Có random pool loại các F-Score picks.
-- Có long top-k/short bottom-k ở US/Japan; Vietnam tự động long-only.
+- Có long top-k/short bottom-k ở cả ba thị trường. Ở Vietnam đây là **giả định, không phải danh mục giao dịch được**: bán khống cổ phiếu thường không khả dụng trên HOSE/HNX, nên `fscore_LS` chỉ dùng để tách xem đầu *thấp* của bảng xếp hạng có mang thông tin hay không, chứ không phải một chiến lược ai đó có thể chạy. `fscore.markets.is_hypothetical_short` đánh dấu điều này và mọi báo cáo in dòng đó phải nói kèm.
 
 Grid có direct synergy statistic:
 
@@ -183,20 +183,21 @@ Kết luận từ grid: selection edge không ổn định và optimizer không 
 
 ### 6.3 Vietnam artefacts hiện có
 
-Kết quả hiện có trong `results/grid/vietnam_k25_mc1000_*` dùng k=25 và formation 2012–2025:
+Đọc từ `results/grid/vietnam_k25_mc1000_*` (k=25, formation 2012–2024, 13 holding year đủ 12 tháng). Toàn bộ notebook Vietnam đã được regenerate và chạy lại; xem `VIETNAM_RERUN_NEEDED.md`.
 
-- F-Score EW Sharpe: khoảng 1.702.
-- F-Score EW gross Sharpe p-value so với random full universe: 0.039.
-- Gross Sharpe p-value so với random non-F-Score pool: 0.041.
-- Annual-return p-value: khoảng 0.111, không significant.
-- F-Score GMV Sharpe: khoảng 2.111.
-- Sector-GMV Sharpe: khoảng 1.816.
-- Universe-GMV Sharpe: khoảng 3.399.
-- `D_FScore = 0.409`.
-- Synergy p-value: khoảng 0.107, không significant.
+- F-Score EW Sharpe: 1.318 (ann return 20.9%).
+- F-Score EW gross Sharpe p-value so với random full universe: 0.010, **significant**.
+- Gross Sharpe p-value so với random non-F-Score pool: 0.011, **significant**.
+- Annual-return p-value: 0.038, **significant**.
+- F-Score GMV Sharpe: 1.769.
+- Sector-GMV Sharpe: 1.508.
+- Universe-EW Sharpe: 1.285. Universe-GMV Sharpe: 2.492.
+- `D_FScore = 0.451`.
+- Synergy p-value: 0.14, không significant.
+- **Long-short (`fscore_LS`)**: Sharpe 0.461 gross, 0.362 net; ann return 8.1%. Ổn định trên cả chín cell của grid (0.41–0.46 gross, 0.30–0.36 net).
 
-Diễn giải tạm thời:
+Diễn giải:
 
-> Vietnam F-Score EW có gross Sharpe cao hơn random ở mức 5%, nhưng chưa có bằng chứng GMV tạo synergy đặc biệt với F-Score. Universe-GMV còn có Sharpe cao hơn F-Score GMV, nên phải so sánh với control này trước khi kết luận F-Score có giá trị thực tiễn.
+> Vietnam F-Score EW có gross Sharpe cao hơn random ở mức 5% một cách ổn định, nhưng vẫn chưa có bằng chứng GMV tạo synergy đặc biệt với F-Score (`D_p = 0.14`). Universe-GMV vẫn có Sharpe cao hơn F-Score GMV, nên phải so sánh với control này trước khi kết luận F-Score có giá trị thực tiễn. Ở `k=30` thì F-Score EW (1.184) **thấp hơn** universe EW (1.285) và không còn significant (p = 0.105) — kết luận nhạy với k, không nhạy với N.
 
-Kết quả Vietnam chưa nên coi là final vì notebook/configuration chưa đồng bộ hoàn toàn.
+> `fscore_LS` là thị trường duy nhất mà spread high-minus-low sống sót sau chi phí (net 0.36, so với −0.29 ở US và 0.24 ở Japan). Nhưng đây là **giả định, không giao dịch được** — xem mục 4.2.
