@@ -48,7 +48,8 @@ def build_score_panel(fund: pd.DataFrame, score_years,
 
     A firm-year appears only with a complete nine-signal score; the per-year
     counts of what was dropped, and of how EQ_OFFER was measured, are attached
-    as `.attrs["per_year"]` for the exclusion report.
+    as `.attrs["per_year"]` records for the exclusion report; read them
+    back with `per_year_frame()`.
     """
     rows, per_year = [], []
     for year in score_years:
@@ -93,5 +94,16 @@ def build_score_panel(fund: pd.DataFrame, score_years,
     panel = panel.merge(vals[["ticker", "fiscal_year", "bm", "market_cap"]],
                         on=["ticker", "fiscal_year"], how="left")
 
-    panel.attrs["per_year"] = pd.DataFrame(per_year)
+    # Stored as records rather than a DataFrame. pandas propagates `.attrs`
+    # onto derived frames and compares them elementwise when concatenating —
+    # `obj.attrs == attrs` on a dict holding a DataFrame raises "truth value
+    # is ambiguous". That turns an ordinary `nlargest` or `concat` downstream
+    # into a crash with no obvious cause. Records compare cleanly; use
+    # `per_year_frame()` to get the table back.
+    panel.attrs["per_year"] = per_year
     return panel[[c for c in PANEL_COLUMNS if c in panel.columns]]
+
+
+def per_year_frame(panel: pd.DataFrame) -> pd.DataFrame:
+    """The per-year exclusion counts carried on `panel.attrs`, as a table."""
+    return pd.DataFrame(panel.attrs.get("per_year", []))

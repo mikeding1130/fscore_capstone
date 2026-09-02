@@ -196,7 +196,10 @@ def scores_from_fs_clean(market: str, data_dir: str | Path = "data",
         "delta_margin_up": "f_dmargin", "delta_turnover_up": "f_dturn"})
     if sectors is not None:
         panel["sector"] = panel.ticker.map(sectors)
-    panel.attrs["per_year"] = pd.DataFrame(dropped)
+    # records, not a DataFrame: pandas compares `.attrs` elementwise when
+    # concatenating derived frames, and a DataFrame there raises "truth value
+    # is ambiguous". See fscore.data.score_panel.per_year_frame.
+    panel.attrs["per_year"] = dropped
     panel.attrs["unmapped_identifiers"] = fund.attrs["unmapped_identifiers"]
     return panel
 

@@ -8,6 +8,7 @@ What each column is, where it came from, and why it can be published.
 | `f_roa` … `f_dturn` (nine flags) | computed here by `fscore.signal.piotroski` | **irreversible**: each is one bit, the outcome of a comparison (e.g. ROA > 0). The underlying value cannot be recovered. |
 | `fscore` | sum of the nine flags | further aggregation, 0–9 |
 | `sector` | Yahoo Finance classification | not vendor data |
+| `bm_rank` | rank by book-to-market within the score year, 1 = highest | **irreversible**: an ordering, not a level. Book value and market capitalisation cannot be recovered from it. Shipped because the study uses B/M only as an order — the top 40% forms the value universe, the top k forms the value control. |
 
 **Statement sources.** The US flags come from SEC EDGAR XBRL — public filings,
 no vendor involved, rebuildable end to end by `scripts/fetch_us_edgar.py`. The
@@ -38,6 +39,21 @@ Japanese 有価証券報告書). A reader can recompute every flag from those
 filings without any commercial subscription.
 
 ## Reproducing the results from this panel
+
+With this panel and freely re-fetchable prices, a reader can rebuild the study
+without any licensed input:
+
+1. **Universe** — the panel's rows for a score year *are* that year's index
+   constituents, because the panel is built after the membership filter. Median
+   dollar volume, the liquidity screen, comes from public prices.
+2. **Value subset** — take the top 40% by `bm_rank` within the rebuilt
+   universe. `bm_rank` is an ordering, so restricting it to a subset preserves
+   the order.
+3. **Baskets** — top k by `fscore`, ties broken by the seeded shuffle in
+   `fscore.selection.baskets.rank_by_fscore` (seed = 42 + formation year).
+4. **Weights and evaluation** — `fscore.construction` and
+   `fscore.evaluation` need only prices and the sector labels shipped here.
+
 
 `results/panel/*.csv` plus the caches rebuilt by `scripts/fetch_us_edgar.py`,
 `scripts/fetch_us_japan.py` and `scripts/build_japan_bbg.py` are enough to

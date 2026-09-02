@@ -101,6 +101,74 @@ def test_costs_are_charged_per_strategy_not_uniformly():
     assert st.mc_turnover() == pytest_approx(1 / 3)            # control's own
 
 
+def test_panel_attrs_survive_ordinary_pandas_operations():
+    """`.attrs` must not hold a DataFrame.
+
+    pandas propagates attrs onto derived frames and compares them elementwise
+    when concatenating: `obj.attrs == attrs` on a dict holding a DataFrame
+    raises "truth value of a DataFrame is ambiguous". A reader doing nothing
+    unusual — `nlargest` on a column, `concat` of two slices — would get a
+    crash pointing at pandas internals rather than at us.
+    """
+    from fscore.data.score_panel import build_score_panel, per_year_frame
+
+    years = [2020, 2021]
+    rows = []
+    for t in ("A", "B", "C"):
+        for fy in (2018, 2019, 2020, 2021):
+            rows.append({"ticker": t, "fiscal_year": fy,
+                         "report_date": pd.Timestamp(f"{fy}-12-31"),
+                         "total_assets": 100.0 + fy, "net_income": 5.0,
+                         "cfo": 6.0, "long_term_debt": 10.0,
+                         "current_assets": 40.0, "current_liabilities": 20.0,
+                         "shares_outstanding": 50.0, "revenue": 80.0,
+                         "cogs": 50.0, "book_value": 60.0, "market_cap": 90.0})
+    panel = build_score_panel(pd.DataFrame(rows), years)
+
+    assert not isinstance(panel.attrs.get("per_year"), pd.DataFrame)
+    assert not per_year_frame(panel).empty          # still readable as a table
+
+    # the operations that used to raise
+    pd.concat([panel.head(2), panel.tail(2)])
+    panel.nlargest(2, "fscore")
+
+
+def test_synergy_is_paired_basket_by_basket():
+    """D must compare each random basket against *itself* under the two
+    weightings, not one distribution against another.
+
+    Built so the two are impossible to confuse: every optimised column beats
+    its own equal-weight twin by construction, but the two *pools* have
+    identical spreads. An unpaired test would centre D on zero and find
+    nothing; the paired test must place the F-Score basket inside a
+    distribution that is entirely positive.
+    """
+    from fscore.pipeline import StudyResult
+
+    idx = pd.bdate_range("2020-01-01", periods=260)
+    rng = np.random.default_rng(0)
+    n = 40
+    # column i: EW is noise around a level that differs a lot between columns.
+    # GMV keeps that column's mean and halves only its deviations, so Sharpe
+    # roughly doubles. Scaling the whole series instead would halve mean and
+    # deviation together and leave Sharpe untouched — no gain to detect.
+    ew = pd.DataFrame({i: rng.normal(0.0004 + 0.0004 * (i % 5), 0.02, len(idx))
+                       for i in range(n)}, index=idx)
+    gmv = pd.DataFrame({i: ew[i].mean() + (ew[i] - ew[i].mean()) * 0.5
+                        for i in range(n)}, index=idx)
+    daily = pd.DataFrame({"fscore_EW": ew[0], "fscore_GMV": gmv[0]}, index=idx)
+
+    st = StudyResult("t", [2020], [], daily, {"EW": ew, "GMV": gmv})
+    out = st.synergy("GMV")
+
+    # halving volatility while keeping mean doubles Sharpe, so every paired
+    # difference is positive — a distribution an unpaired test could not see
+    assert out["D_random_mean"] > 0
+    assert out["n"] == n
+    # the F-Score basket is column 0's own gain, so it sits mid-distribution
+    assert 0.0 < out["percentile"] < 1.0
+
+
 def pytest_approx(x, tol=1e-9):
     class _A:
         def __eq__(self, other):
