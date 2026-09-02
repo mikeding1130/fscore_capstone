@@ -101,6 +101,38 @@ def test_costs_are_charged_per_strategy_not_uniformly():
     assert st.mc_turnover() == pytest_approx(1 / 3)            # control's own
 
 
+def test_panel_attrs_survive_ordinary_pandas_operations():
+    """`.attrs` must not hold a DataFrame.
+
+    pandas propagates attrs onto derived frames and compares them elementwise
+    when concatenating: `obj.attrs == attrs` on a dict holding a DataFrame
+    raises "truth value of a DataFrame is ambiguous". A reader doing nothing
+    unusual — `nlargest` on a column, `concat` of two slices — would get a
+    crash pointing at pandas internals rather than at us.
+    """
+    from fscore.data.score_panel import build_score_panel, per_year_frame
+
+    years = [2020, 2021]
+    rows = []
+    for t in ("A", "B", "C"):
+        for fy in (2018, 2019, 2020, 2021):
+            rows.append({"ticker": t, "fiscal_year": fy,
+                         "report_date": pd.Timestamp(f"{fy}-12-31"),
+                         "total_assets": 100.0 + fy, "net_income": 5.0,
+                         "cfo": 6.0, "long_term_debt": 10.0,
+                         "current_assets": 40.0, "current_liabilities": 20.0,
+                         "shares_outstanding": 50.0, "revenue": 80.0,
+                         "cogs": 50.0, "book_value": 60.0, "market_cap": 90.0})
+    panel = build_score_panel(pd.DataFrame(rows), years)
+
+    assert not isinstance(panel.attrs.get("per_year"), pd.DataFrame)
+    assert not per_year_frame(panel).empty          # still readable as a table
+
+    # the operations that used to raise
+    pd.concat([panel.head(2), panel.tail(2)])
+    panel.nlargest(2, "fscore")
+
+
 def test_synergy_is_paired_basket_by_basket():
     """D must compare each random basket against *itself* under the two
     weightings, not one distribution against another.

@@ -52,11 +52,11 @@ an order of magnitude of trading that no cost was ever charged for.
 | `src/fscore/markets.py` | per-market trading constraints (where a short leg is tradable) |
 | `src/fscore/grid.py` | robustness grid runner (basket size × random-sample size × market) |
 | `src/fscore/plotting.py` | figure defaults; every saved chart is 300 dpi |
-| `scripts/` | data builders (`fetch_us_edgar.py`, `fetch_us_japan.py`, `build_japan_bbg.py`, `deepen_japan_prices.py`, `build_vietnam_data.py`), notebook generators, `full_period.py`, `eq_offer_sensitivity.py`, `tie_break_sensitivity.py`, `reconcile_report.py`, `d_test.py`, `export_panel.py` |
+| `scripts/` | data builders (`fetch_us_edgar.py`, `fetch_us_japan.py`, `build_japan_bbg.py`, `deepen_japan_prices.py`, `build_vietnam_data.py`), notebook generators, `full_period.py`, `eq_offer_sensitivity.py`, `tie_break_sensitivity.py`, `reconcile_report.py`, `d_test.py`, `d_table_figure.py`, `export_panel.py` |
 | `notebooks/` | `01`/`02` synthetic demos; `03`/`04`/`05` full studies (US / Japan / Vietnam); `grid/` three robustness notebooks, nine cells each |
 | `data/` | git-ignored cache, rebuilt by the fetch scripts |
 | `results/` | CSVs and 300-dpi figures behind every table and chart in the report |
-| `tests/` | 23 tests, each pinning one design decision |
+| `tests/` | 24 tests, each pinning one design decision |
 
 ## Reproducing the results
 
