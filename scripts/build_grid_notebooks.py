@@ -148,20 +148,20 @@ measure, because the vendor's issuance column is empty.""",
 # Vietnam keeps its own preprocessing pipeline, which already ships a scored
 # panel; the developed pair now score from canonical statements here.
 LOADERS = {
-    "us": '''from fscore.data.score_panel import build_score_panel
+    "us": '''from fscore.data.score_panel import build_score_panel, per_year_frame
 from fscore.data.edgar import load_membership
 fund = pd.read_csv(ROOT / "data" / "us_fundamentals.csv", parse_dates=["report_date"])
 sectors_map = pd.read_csv(ROOT / "data" / "us_sectors.csv").set_index("ticker")["sector"]
 scores = build_score_panel(fund, [y - 1 for y in YEARS], sectors=sectors_map,
                            membership=load_membership(ROOT / "data"))
-drops_year = scores.attrs["per_year"].set_index("score_year")''',
-    "japan": '''from fscore.data.score_panel import build_score_panel
+drops_year = per_year_frame(scores).set_index("score_year")''',
+    "japan": '''from fscore.data.score_panel import build_score_panel, per_year_frame
 from fscore.data.bbg_processed import constituents
 fund = pd.read_csv(ROOT / "data" / "japan_bbg_fundamentals.csv", parse_dates=["report_date"])
 sectors_map = pd.read_csv(ROOT / "data" / "japan_sectors.csv").set_index("ticker")["sector"]
 scores = build_score_panel(fund, [y - 1 for y in YEARS], sectors=sectors_map,
                            membership=constituents(MARKET, ROOT / "data", YEARS))
-drops_year = scores.attrs["per_year"].set_index("score_year")''',
+drops_year = per_year_frame(scores).set_index("score_year")''',
     "vietnam": '''from fscore.data.fs_clean import exclusion_report, load_scores
 scores = load_scores(MARKET, ROOT / "data")   # the sibling pipeline's panel
 try:

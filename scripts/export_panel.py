@@ -75,7 +75,7 @@ OUT = ROOT / "results" / "panel"
 # excluded and recomputed at load time from the freely rebuildable caches, so
 # nothing here is a data point that could stand in for the source.
 KEEP = (["score_year", "fiscal_year", "ticker", "fscore"]
-        + [c.lower() for c in SIGNAL_COLS] + ["sector"])
+        + [c.lower() for c in SIGNAL_COLS] + ["sector", "bm_rank"])
 # Continuous values, deliberately not exported: shares_outstanding is a raw
 # vendor figure; bm and market_cap are ours but are still per-security
 # numbers, so they are regenerated rather than shipped.
@@ -91,6 +91,7 @@ What each column is, where it came from, and why it can be published.
 | `f_roa` … `f_dturn` (nine flags) | computed here by `fscore.signal.piotroski` | **irreversible**: each is one bit, the outcome of a comparison (e.g. ROA > 0). The underlying value cannot be recovered. |
 | `fscore` | sum of the nine flags | further aggregation, 0–9 |
 | `sector` | Yahoo Finance classification | not vendor data |
+| `bm_rank` | rank by book-to-market within the score year, 1 = highest | **irreversible**: an ordering, not a level. Book value and market capitalisation cannot be recovered from it. Shipped because the study uses B/M only as an order — the top 40% forms the value universe, the top k forms the value control. |
 
 **Statement sources.** The US flags come from SEC EDGAR XBRL — public filings,
 no vendor involved, rebuildable end to end by `scripts/fetch_us_edgar.py`. The
@@ -122,6 +123,21 @@ filings without any commercial subscription.
 
 ## Reproducing the results from this panel
 
+With this panel and freely re-fetchable prices, a reader can rebuild the study
+without any licensed input:
+
+1. **Universe** — the panel's rows for a score year *are* that year's index
+   constituents, because the panel is built after the membership filter. Median
+   dollar volume, the liquidity screen, comes from public prices.
+2. **Value subset** — take the top 40% by `bm_rank` within the rebuilt
+   universe. `bm_rank` is an ordering, so restricting it to a subset preserves
+   the order.
+3. **Baskets** — top k by `fscore`, ties broken by the seeded shuffle in
+   `fscore.selection.baskets.rank_by_fscore` (seed = 42 + formation year).
+4. **Weights and evaluation** — `fscore.construction` and
+   `fscore.evaluation` need only prices and the sector labels shipped here.
+
+
 `results/panel/*.csv` plus the caches rebuilt by `scripts/fetch_us_edgar.py`,
 `scripts/fetch_us_japan.py` and `scripts/build_japan_bbg.py` are enough to
 re-run every notebook. The
@@ -140,8 +156,28 @@ EDGAR alone (`scripts/fetch_us_edgar.py`), with no vendor input of any kind.
 """
 
 
+def add_bm_rank(panel: pd.DataFrame) -> pd.DataFrame:
+    """Rank by book-to-market within each score year, 1 = highest B/M.
+
+    The study uses B/M twice, and both uses need only the *ordering*: the
+    high-B/M subset is the top 40% of the universe, and the value control
+    basket is the top k. Shipping the rank therefore makes the panel
+    reproducible without shipping a continuous per-security number — a rank is
+    a many-to-one map, so book value and market capitalisation cannot be
+    recovered from it, individually or together.
+
+    Ranks are dense and computed over every scored name in the year, so
+    restricting to whatever universe a reader rebuilds preserves the order.
+    """
+    out = panel.copy()
+    out["bm_rank"] = (out.groupby("score_year")["bm"]
+                         .rank(ascending=False, method="first")
+                         .astype("Int64"))
+    return out
+
+
 def export(market: str) -> pd.DataFrame:
-    panel = load_market_scores(market)
+    panel = add_bm_rank(load_market_scores(market))
     missing = [c for c in KEEP if c not in panel.columns]
     if missing:
         raise KeyError(f"{market}: expected columns absent: {missing}")
