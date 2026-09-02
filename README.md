@@ -52,11 +52,11 @@ an order of magnitude of trading that no cost was ever charged for.
 | `src/fscore/markets.py` | per-market trading constraints (where a short leg is tradable) |
 | `src/fscore/grid.py` | robustness grid runner (basket size × random-sample size × market) |
 | `src/fscore/plotting.py` | figure defaults; every saved chart is 300 dpi |
-| `scripts/` | data builders (`fetch_us_edgar.py`, `fetch_us_japan.py`, `build_japan_bbg.py`, `deepen_japan_prices.py`, `build_vietnam_data.py`), notebook generators, `full_period.py`, `eq_offer_sensitivity.py`, `tie_break_sensitivity.py`, `reconcile_report.py`, `export_panel.py` |
+| `scripts/` | data builders (`fetch_us_edgar.py`, `fetch_us_japan.py`, `build_japan_bbg.py`, `deepen_japan_prices.py`, `build_vietnam_data.py`), notebook generators, `full_period.py`, `eq_offer_sensitivity.py`, `tie_break_sensitivity.py`, `reconcile_report.py`, `d_test.py`, `export_panel.py` |
 | `notebooks/` | `01`/`02` synthetic demos; `03`/`04`/`05` full studies (US / Japan / Vietnam); `grid/` three robustness notebooks, nine cells each |
 | `data/` | git-ignored cache, rebuilt by the fetch scripts |
 | `results/` | CSVs and 300-dpi figures behind every table and chart in the report |
-| `tests/` | 22 tests, each pinning one design decision |
+| `tests/` | 23 tests, each pinning one design decision |
 
 ## Reproducing the results
 
@@ -351,6 +351,36 @@ absolute terms and better ones for the random baskets, so all three Sharpe
 ratios rise while all three percentiles fall — sector-GMV's p-value goes from
 0.0033 to 0.020. A six-fold move from two extra years says a meaningful part
 of that headline p-value came from where the window was cut.
+
+### The optimisation-gain test, D, per market
+
+`scripts/d_test.py` answers the review's first priority directly: does
+construction add anything? D = Sharpe(GMV) − Sharpe(EW), placed inside the
+distribution of the *same within-basket difference* over random baskets. The
+test is paired — the optimised Monte Carlo columns optimise the very baskets
+the equal-weight columns hold equally, column for column — so it separates the
+optimiser's effect from the luck of drawing different names.
+
+| market | family | spec | D | random mean D | p |
+|---|---|---|---|---|---|
+| US | main study | k=30, GMV | **−0.075** | −0.265 | **0.043** |
+| US | main study | k=30, sector-GMV | **+0.107** | −0.171 | **0.003** |
+| US | grid | k=20/25/30, GMV | −0.101 / −0.071 / −0.088 | — | 0.60 / 0.53 / 0.59 |
+| Japan | main study | k=30, GMV | +0.093 | +0.079 | 0.40 |
+| Japan | main study | k=30, sector-GMV | +0.086 | +0.057 | 0.22 |
+| Japan | grid | k=20/25/30, GMV | −0.214 / −0.165 / −0.050 | — | 0.98 / 0.95 / 0.85 |
+| Vietnam | grid | k=20/25/30, GMV | +0.227 / +0.451 / +0.418 | — | 0.50 / 0.14 / 0.25 |
+
+D is negative in 7 of the 13 specifications, and only two clear 5% — both in
+the US main study.
+
+**One of those two needs reading carefully.** US plain GMV has D = **−0.075**:
+the optimiser *lowers* the F-Score basket's Sharpe. It clears 5% only because
+it lowers a random basket's Sharpe by more (random mean D = −0.265). The
+correct reading is "hurts less than it hurts chance", not "adds value". Only
+sector-capped GMV (D = +0.107 against a random mean of −0.171) is a genuine
+gain. `d_test.py` prints this caveat beside the table rather than leaving
+"significant" to be misread.
 
 ### Measurement sensitivity
 

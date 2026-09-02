@@ -389,6 +389,39 @@ class StudyResult:
                                      "percentile", "p_value", "significant",
                                      "n_draws"]]
 
+    def synergy(self, construction: str = "GMV") -> dict:
+        """Optimisation gain D = Sharpe(optimised) - Sharpe(EW), placed inside
+        the distribution of the same difference over random baskets.
+
+        The test is **paired**: `mc_daily[construction]` optimises the first
+        `n_mc_opt` of the very baskets `mc_daily["EW"]` holds equally, column
+        for column, so D is measured on one basket at a time and the random
+        distribution is of that same within-basket difference. Comparing two
+        unpaired distributions would mix the optimiser's effect together with
+        the luck of drawing different names.
+
+        Reported per market so "does the optimiser add anything?" is answered
+        separately from "does the screen pick anything?".
+        """
+        ew, opt = self.mc_daily["EW"], self.mc_daily[construction]
+        n = opt.shape[1]
+        d_rand = pd.Series(
+            [metrics(opt[i].dropna())["sharpe"] - metrics(ew[i].dropna())["sharpe"]
+             for i in range(n) if i in ew.columns]).dropna()
+        d_f = (metrics(self.daily[f"fscore_{construction}"].dropna())["sharpe"]
+               - metrics(self.daily["fscore_EW"].dropna())["sharpe"])
+        out = vs_random(d_f, d_rand.tolist())
+        out.update({"construction": construction, "D_fscore": d_f,
+                    "D_random_mean": float(d_rand.mean()),
+                    "D_random_std": float(d_rand.std()), "n": int(len(d_rand))})
+        return out
+
+    def synergy_table(self) -> pd.DataFrame:
+        """D for every optimised construction this study ran."""
+        rows = [self.synergy(c) for c in ("GMV", "GMVsec")
+                if c in self.mc_daily and f"fscore_{c}" in self.daily.columns]
+        return pd.DataFrame(rows).set_index("construction") if rows else pd.DataFrame()
+
     def turnover_table(self) -> pd.DataFrame:
         rows = []
         for prev, curr in zip(self.yearly, self.yearly[1:]):
