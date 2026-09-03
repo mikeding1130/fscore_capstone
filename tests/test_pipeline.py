@@ -101,6 +101,38 @@ def test_costs_are_charged_per_strategy_not_uniformly():
     assert st.mc_turnover() == pytest_approx(1 / 3)            # control's own
 
 
+def test_subset_run_does_not_truncate_the_shared_results_table():
+    """Recomputing one market must not drop the others from the shared file.
+
+    `d_test.py us` after a full pass used to overwrite the table with US-only
+    rows — no error, just a quietly incomplete file, which is how the committed
+    version lost Japan. The merge must replace the recomputed market and carry
+    every other one through.
+    """
+    import pathlib as _pl
+    sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[1] / "scripts"))
+    from d_test import merge_into_shared
+
+    cols = ["market", "family", "spec", "D"]
+    previous = pd.DataFrame(
+        [["us", "grid", "k=20", -0.10], ["us", "main", "k=30", -0.08],
+         ["japan", "grid", "k=20", -0.21], ["vietnam", "grid", "k=20", 0.23]],
+        columns=cols)
+    fresh = pd.DataFrame([["us", "grid", "k=20", -0.99]], columns=cols)
+
+    merged, kept = merge_into_shared(fresh, previous)
+
+    assert set(merged.market) == {"us", "japan", "vietnam"}   # nothing lost
+    assert kept == ["japan", "vietnam"]
+    us = merged[merged.market == "us"]
+    assert len(us) == 1 and us.D.iloc[0] == -0.99   # stale US rows replaced
+    assert merged[merged.market == "japan"].D.iloc[0] == -0.21
+
+    # a first run, with no file yet, is just the fresh rows
+    first, kept0 = merge_into_shared(fresh, None)
+    assert len(first) == 1 and kept0 == []
+
+
 def test_panel_attrs_survive_ordinary_pandas_operations():
     """`.attrs` must not hold a DataFrame.
 

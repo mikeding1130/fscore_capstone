@@ -1,6 +1,14 @@
 market,family,spec,D,D_random_mean,percentile,p_value,significant_5pct,n_draws
+japan,grid (full universe),"k=20, GMV",-0.2135,,,0.98,False,300
+japan,grid (full universe),"k=25, GMV",-0.1652,,,0.9467,False,300
+japan,grid (full universe),"k=30, GMV",-0.0502,,,0.8533,False,300
+japan,main study (high-B/M subset),"k=30, GMV",0.0929,0.0789,0.6,0.4,False,300
+japan,main study (high-B/M subset),"k=30, GMVsec",0.0862,0.0568,0.7833,0.2167,False,300
 us,grid (full universe),"k=20, GMV",-0.1006,,,0.5967,False,300
 us,grid (full universe),"k=25, GMV",-0.0712,,,0.5333,False,300
 us,grid (full universe),"k=30, GMV",-0.0875,,,0.59,False,300
 us,main study (high-B/M subset),"k=30, GMV",-0.075,-0.2654,0.9567,0.0433,True,300
 us,main study (high-B/M subset),"k=30, GMVsec",0.1072,-0.1708,0.9967,0.0033,True,300
+vietnam,grid (full universe),"k=20, GMV",0.227,,,0.5,False,300
+vietnam,grid (full universe),"k=25, GMV",0.4513,,,0.14,False,300
+vietnam,grid (full universe),"k=30, GMV",0.4178,,,0.2533,False,300

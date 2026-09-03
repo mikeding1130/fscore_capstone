@@ -94,6 +94,27 @@ def grid_d(market: str) -> list[dict]:
     return rows
 
 
+def merge_into_shared(fresh: pd.DataFrame,
+                      previous: pd.DataFrame | None
+                      ) -> tuple[pd.DataFrame, list[str]]:
+    """Fold this run's rows into the shared table without truncating it.
+
+    A subset run must not shorten the file. Running `d_test.py us` after a full
+    pass used to overwrite it with US-only rows — no error raised, just a
+    quietly incomplete table, which is how the committed version lost Japan.
+    Rows for the markets recomputed here are replaced; every other market's are
+    carried through, and the caller is told which.
+    """
+    fresh = fresh.sort_values(["market", "family", "spec"])
+    if previous is None or previous.empty:
+        return fresh.reset_index(drop=True), []
+    keep = previous[~previous.market.isin(set(fresh.market.unique()))]
+    merged = (pd.concat([keep, fresh], ignore_index=True)
+                .sort_values(["market", "family", "spec"])
+                .reset_index(drop=True))
+    return merged, sorted(keep.market.unique())
+
+
 def main() -> None:
     wanted = sys.argv[1:] or ["us", "japan", "vietnam"]
     rows = []
@@ -111,8 +132,12 @@ def main() -> None:
     if not rows:
         print("nothing to report")
         return
-    out = pd.DataFrame(rows).sort_values(["market", "family", "spec"])
-    out.to_csv(RESULTS / "d_test_by_market.csv", index=False)
+    dest = RESULTS / "d_test_by_market.csv"
+    prev = pd.read_csv(dest) if dest.exists() else None
+    out, kept = merge_into_shared(pd.DataFrame(rows), prev)
+    if kept:
+        print(f"\nkeeping the rows already on file for {kept}")
+    out.to_csv(dest, index=False)
     print("\n" + out.to_string(index=False))
     neg = int((out.D < 0).sum())
     sig = int(out.significant_5pct.sum())
