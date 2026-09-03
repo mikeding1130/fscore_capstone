@@ -16,9 +16,12 @@ Two experiment families report D, and they are not interchangeable:
     baskets drawn from the whole universe. Read from the grid summaries, which
     already carry D and its p-value for all nine cells per market.
 
-Vietnam runs in the grid only: its main study needs the sibling `../thesis`
-repository, which is not in every checkout (see VIETNAM_RERUN_NEEDED.md). The
-table says so rather than leaving a blank.
+Vietnam's main study runs here too, with one difference: it reads a score
+panel produced upstream instead of computing the nine signals, so the panel is
+passed in rather than derived. It needs the Vietnamese caches that
+`src/fscore_vietnam/schema_adapter_util.py` writes from the sibling `../thesis`
+checkout (see VIETNAM_RERUN_NEEDED.md); where those are absent the market
+falls back to its grid rows, as any market does.
 
 Run:  python scripts/d_test.py            # every market it can compute
       python scripts/d_test.py us japan   # a subset
@@ -39,12 +42,14 @@ from fscore.pipeline import run_study  # noqa: E402
 RESULTS = ROOT / "results"
 YEARS = list(range(2012, 2025))
 RUN_KW = dict(n_mc=1000, n_mc_opt=300, seed=42, detone=False, end_cap=None)
-MAIN_STUDY = {"us": dict(lag_months=1), "japan": dict(lag_months=3)}
+MAIN_STUDY = {"us": dict(lag_months=1), "japan": dict(lag_months=3),
+              "vietnam": dict(lag_months=6)}
 
 
 def load_market(market: str):
-    """Fundamentals, prices, sectors and membership, from the source this
-    market's main study reads."""
+    """Fundamentals, prices, sectors, membership and — where the market is
+    scored upstream — its score panel, from the source this market's main
+    study reads. The panel is None for markets scored in this repository."""
     data = ROOT / "data"
     if market == "japan":
         from fscore.data.bbg_processed import constituents
@@ -52,17 +57,31 @@ def load_market(market: str):
                            parse_dates=["report_date"])
         prices = pd.read_csv(data / "japan_prices.csv.gz", parse_dates=["date"])
         sectors = pd.read_csv(data / "japan_sectors.csv").set_index("ticker")["sector"]
-        return fund, prices, sectors, constituents(market, data, YEARS)
+        return fund, prices, sectors, constituents(market, data, YEARS), None
+    if market == "vietnam":
+        # Read the three files directly rather than through `load_cached`,
+        # which also demands the benchmark cache. Benchmarks carry no null and
+        # take no part in D, so requiring them would block this test on a file
+        # it never reads.
+        from fscore.data.fs_clean import load_scores
+        fund = pd.read_csv(data / "vietnam_fundamentals.csv",
+                           parse_dates=["report_date"])
+        prices = pd.read_csv(data / "vietnam_prices.csv.gz", parse_dates=["date"])
+        sectors = pd.read_csv(data / "vietnam_sectors.csv").set_index("ticker")["sector"]
+        # Scored upstream by `src/fscore_vietnam`: the study reads that panel
+        # and does not recompute a signal. No index membership applies.
+        return fund, prices, sectors, None, load_scores(market, data)
     from fscore.data.edgar import load_membership
     from fscore.data.yahoo import load_cached
     fund, prices, sectors, _ = load_cached(market, data)
-    return fund, prices, sectors, load_membership(data)
+    return fund, prices, sectors, load_membership(data), None
 
 
 def main_study_d(market: str) -> list[dict]:
-    fund, prices, sectors, membership = load_market(market)
+    fund, prices, sectors, membership, scores = load_market(market)
     study = run_study(market, fund, prices, sectors, YEARS,
-                      membership=membership, **MAIN_STUDY[market], **RUN_KW)
+                      membership=membership, scores=scores,
+                      **MAIN_STUDY[market], **RUN_KW)
     rows = []
     for construction, r in study.synergy_table().iterrows():
         rows.append({"market": market, "family": "main study (high-B/M subset)",
@@ -127,7 +146,7 @@ def main() -> None:
             except FileNotFoundError as exc:
                 print(f"  {m}: main study not runnable here ({exc})")
         else:
-            print(f"{m}: grid only - its main study needs ../thesis")
+            print(f"{m}: no main study configured here - grid rows only")
 
     if not rows:
         print("nothing to report")
