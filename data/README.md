@@ -50,7 +50,7 @@ Three things to know before reading any Vietnamese number:
    dividends; the portfolios are built on dividend-adjusted closes. The gap
    (~1.5–2% a year) flatters every portfolio-vs-index row.
 3. **The panel is already liquidity-screened.** A June-turnover tradability
-   gate removes 5,296 of 23,493 firm-years before this repository sees them —
+   gate removes 5,296 of 23,493 firm-years before the study code sees them —
    a gate the US and Japan panels do not have. Vietnam scores 40.4% of its
    source rows against 83.0% (US) and 88.7% (Japan).
 

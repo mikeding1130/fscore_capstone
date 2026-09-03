@@ -5,9 +5,9 @@ crawls FireAnt, CafeF and TCBS into `fscore.db`, reconciles the three,
 applies accounting checks, computes the nine Piotroski signals, screens for
 tradability and writes the panels `fscore_vietnam.schema_adapter` then consumes.
 
-It lived in a sibling `thesis` repository until this package was created; the
-notebooks are unchanged apart from their paths, which now come from
-`fscore_vietnam.paths` instead of being spelled out relative to a checkout.
+Every location the notebooks read and write comes from `fscore_vietnam.paths`
+rather than being spelled out relative to whatever the working directory
+happens to be, so the tree lives under this repository and moves as one.
 
 `fscore.signal.piotroski` does NOT score Vietnam — `f_score_calculation`
 here does, and the two agree flag for flag on every jointly scored firm-year.

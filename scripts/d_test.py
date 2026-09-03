@@ -19,9 +19,9 @@ Two experiment families report D, and they are not interchangeable:
 Vietnam's main study runs here too, with one difference: it reads a score
 panel produced upstream instead of computing the nine signals, so the panel is
 passed in rather than derived. It needs the Vietnamese caches that
-`src/fscore_vietnam/schema_adapter_util.py` writes from the sibling `../thesis`
-checkout (see VIETNAM_RERUN_NEEDED.md); where those are absent the market
-falls back to its grid rows, as any market does.
+`src/fscore_vietnam/schema_adapter_util.py` writes, which are git-ignored
+build products (see VIETNAM_RERUN_NEEDED.md); where those are absent the
+market falls back to its grid rows, as any market does.
 
 Run:  python scripts/d_test.py            # every market it can compute
       python scripts/d_test.py us japan   # a subset

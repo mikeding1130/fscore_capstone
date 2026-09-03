@@ -1,12 +1,25 @@
-numpy>=1.24
-pandas>=2.0
-matplotlib>=3.7
-scipy>=1.10         # exact long-only / sector-capped GMV (SLSQP)
-statsmodels>=0.14   # Fama-French factor regressions
-requests>=2.31
-yfinance>=0.2.40    # US/Japan prices + fundamentals adapter
-beautifulsoup4>=4.12
-lxml>=5.0           # constituent-list parsing (Wikipedia)
-jupyterlab>=4.0
-nbformat>=5.9
-nbclient>=0.9       # headless notebook execution (scripts/)
+# Core numerical and data packages
+numpy
+pandas
+scipy
+matplotlib
+# File I/O and parallel execution
+openpyxl
+pyarrow
+joblib
+tqdm
+# Market-data access used by project notebooks
+yfinance
+# Data retrieval / parsing used by source-data pipelines
+requests
+beautifulsoup4
+lxml
+# Notebook and testing support
+jupyter
+ipykernel
+pytest
+# Bloomberg Desktop API support
+# Bloomberg Terminal/Desktop API access is required for Bloomberg-dependent scripts.
+--extra-index-url https://blpapi.bloomberg.com/repository/releases/python/simple/
+blpapi
+xbbg

@@ -8,8 +8,8 @@ source of record for every Vietnamese number in this study.** It ships the
 two panels both studies rank on — `vietnam_prices.csv.gz` and the score
 panel `vietnam_scores.csv` — through its `run_grid_export.ipynb`.
 
-The pipeline was a separate repository (`../thesis`) until it was moved in
-here; only its paths changed, and `fscore_vietnam.paths` now resolves them.
+Every location it reads is resolved by `fscore_vietnam.paths`, the one module
+in this package that knows where the pipeline's tree sits.
 
 This module therefore does exactly three things, none of which recompute
 anything the pipeline already decided:
@@ -66,9 +66,8 @@ import pandas as pd
 
 # `paths` is the one module that knows where the pipeline's inputs and
 # outputs sit. Importing from it rather than restating the layout is what
-# keeps this adapter from drifting away from the notebooks beside it — the
-# two used to live in separate checkouts addressed by `../thesis`, and every
-# path below was a second opinion about where the panels were.
+# keeps this adapter from drifting away from the notebooks beside it: every
+# path below would otherwise be a second opinion about where the panels are.
 from . import paths as vn_paths
 
 PIPELINE_DIR = vn_paths.RESULTS

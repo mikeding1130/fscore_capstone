@@ -8,12 +8,12 @@
 \toprule
 Item & United States & Japan & Vietnam \\
 \midrule
-Fundamentals source & SEC EDGAR (10-K first prints) plus Yahoo Finance & Licensed-terminal statements, reduced to nine flags & Sibling preprocessing repository: FireAnt, CafeF and TCBS reconciled \\
+Fundamentals source & SEC EDGAR (10-K first prints) plus Yahoo Finance & Licensed-terminal statements, reduced to nine flags & Team's own preprocessing pipeline: FireAnt, CafeF and TCBS reconciled \\
 Report date basis & \textbf{Actual 10-K filing date}$^{*}$ & Fiscal year end, 31 March & Fiscal year end, 31 December \\
 Reporting lag applied & 5 months & 5 months & 5 months (documented as 6 in the data notes) \\
-Price source & Yahoo Finance, adjusted closes & Yahoo Finance, adjusted closes & Sibling repository, dividend-adjusted closes \\
+Price source & Yahoo Finance, adjusted closes & Yahoo Finance, adjusted closes & Team's own pipeline, dividend-adjusted closes \\
 Market proxy & SPY, VTV (total-return ETFs) & 1306.T, EWJV (total-return ETFs) & \textbf{VN30, VNINDEX (capital indices, no dividends)}$^{*}$ \\
-Upstream liquidity screen & None & None & \textbf{June-turnover tradability gate, applied before this repository sees the data}$^{*}$ \\
+Upstream liquidity screen & None & None & \textbf{June-turnover tradability gate, applied before the study code sees the data}$^{*}$ \\
 Delisted coverage & Partial & Partial & Partial: 125 of 1,371 tickers stop printing before 2026 \\
 Short selling & Available & Available & \textbf{Not available; the Vietnamese long-short row is a hypothetical}$^{*}$ \\
 \bottomrule

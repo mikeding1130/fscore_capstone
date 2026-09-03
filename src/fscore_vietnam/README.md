@@ -5,9 +5,9 @@ for every Vietnamese number in the study: `fscore.signal.piotroski` scores the
 US and Japan, and `f_score_calculation.ipynb` here scores Vietnam. Nothing
 downstream recomputes those flags.
 
-It lived in a separate `thesis` repository until it was moved in here. Only
-the paths changed — every notebook now gets its locations from `paths.py`
-instead of writing `../fscore.db` and hoping the working directory matches.
+Every notebook gets its locations from `paths.py` rather than writing a path
+relative to whatever the working directory happens to be, so the whole tree
+lives under this repository.
 
 ## Layout
 
@@ -15,13 +15,14 @@ instead of writing `../fscore.db` and hoping the working directory matches.
 src/fscore_vietnam/          this package: notebooks + the shared modules
 data/vietnam_pipeline/       DATA    — crawled universe files
 data/vietnam_pipeline/results/   RESULTS — every panel the pipeline writes
-<wherever you keep it>/fscore.db     the crawl, ~1.7 GB, NOT in the repository
+data/vietnam_pipeline/fscore.db      the crawl, ~1.7 GB, NOT committed
 ```
 
 `paths.py` resolves all four. Override any of them with `FSCORE_DB`,
-`FSCORE_VN_DATA`, `FSCORE_VN_RESULTS`. The default for `fscore.db` is the old
-`../thesis` checkout, so a machine that already has it keeps working with no
-configuration; set `FSCORE_DB` once if you move it.
+`FSCORE_VN_DATA`, `FSCORE_VN_RESULTS`. All of it is git-ignored — the team
+does not share the raw crawl — so a fresh clone has none of these files: put
+your copy of `fscore.db` at the path above, or set `FSCORE_DB` once if you
+keep it elsewhere.
 
 Run the notebooks **from this directory** — they assert on it, because
 `import statement_fields` and `import paths` both resolve against the working

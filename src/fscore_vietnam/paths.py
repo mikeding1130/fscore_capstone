@@ -2,21 +2,21 @@
 
 One module resolves every location, so a notebook never spells out a relative
 path and moving the tree again means editing this file and nothing else. That
-is the lesson of the move that created it: the pipeline used to live in a
-sibling repository and address everything as `../fscore.db`,
-`../data/preprocessing_pipeline_results/...`, which meant the paths were only
-correct from one working directory in one checkout.
+is the lesson that created it: a path written inline as `../something` is only
+correct from one working directory, and every notebook had its own opinion
+about which one that was.
 
 Layout under the repository root:
 
     data/vietnam_pipeline/            DATA    — crawled universe files
     data/vietnam_pipeline/results/    RESULTS — every panel the pipeline writes
+    data/vietnam_pipeline/fscore.db   DB      — the crawl itself
 
-`fscore.db` is the exception. It is ~1.7 GB of crawled statements, is not
-version-controlled, and is not copied around: point `FSCORE_DB` at wherever
-your copy lives. The default is the sibling `thesis` checkout, which is where
-it was crawled — so an existing working tree keeps running untouched, and a
-machine that has moved the file only has to export one variable.
+Everything under `data/vietnam_pipeline/` is git-ignored: the team does not
+share the raw crawl, so a fresh clone has none of it and every location below
+is a place to *put* your copy, not a place to find one. `fscore.db` is the
+largest of them at ~1.7 GB; if you keep it somewhere else, point `FSCORE_DB`
+at it rather than editing this file.
 
 Every path is overridable:
 
@@ -37,7 +37,7 @@ DATA = Path(os.environ.get("FSCORE_VN_DATA",
 RESULTS = Path(os.environ.get("FSCORE_VN_RESULTS", DATA / "results"))
 
 # Not in the repository: see the module docstring.
-_DEFAULT_DB = REPO_ROOT.parent / "thesis" / "fscore.db"
+_DEFAULT_DB = DATA / "fscore.db"
 DB = Path(os.environ.get("FSCORE_DB", _DEFAULT_DB))
 
 

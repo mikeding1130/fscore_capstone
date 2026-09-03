@@ -158,7 +158,7 @@ class Source:
 
 FIREANT = Source(
     name="fireant",
-    unit_vnd=1e6,  # values stored in triệu đồng
+    unit_vnd=1e6,  # values stored in millions of VND
     tables={
         BALANCE_SHEET: "fireant_balance_sheet",
         INCOME_STATEMENT: "fireant_income_statement",

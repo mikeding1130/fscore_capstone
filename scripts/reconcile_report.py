@@ -373,7 +373,7 @@ def coverage_section(doc):
             if not cached:
                 continue
             tot = read(cached[0], index_col=0).iloc[0]
-        # `rows_in_source` exists only in the sibling pipeline's own ledger.
+        # `rows_in_source` exists only in the Vietnamese pipeline's ledger.
         # The grid writes this table by summing its per-year exclusion frame,
         # which carries counts and no source total, so the denominator is
         # rebuilt from them: what reached the screen = scored + every gate

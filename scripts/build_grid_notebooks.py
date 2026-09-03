@@ -124,7 +124,7 @@ leaving the comparison little to detect. **k = 20 is the interpretable cell
 for Japan.** EQ_OFFER runs entirely on the share count here, the generous
 measure, because the vendor's issuance column is empty.""",
     "vietnam": (
-        "Signals and prices come from the team's own preprocessing repository "
+        "Signals and prices come from the team's own preprocessing pipeline "
         "(`src/fscore_vietnam`), which crawls FireAnt, CafeF and TCBS into "
         "`fscore.db`, reconciles the three, applies accounting checks and "
         "writes a per-firm-year panel; `run_grid_export.ipynb` there ships "
@@ -163,18 +163,19 @@ scores = build_score_panel(fund, [y - 1 for y in YEARS], sectors=sectors_map,
                            membership=constituents(MARKET, ROOT / "data", YEARS))
 drops_year = per_year_frame(scores).set_index("score_year")''',
     "vietnam": '''from fscore.data.fs_clean import exclusion_report, load_scores
-scores = load_scores(MARKET, ROOT / "data")   # the sibling pipeline's panel
+scores = load_scores(MARKET, ROOT / "data")   # the Vietnamese pipeline's panel
 try:
     drops_year = exclusion_report(MARKET, ROOT / "data", by_year=True)
 except FileNotFoundError:
-    # The exclusion ledger is written by the sibling pipeline (../thesis) and
-    # is not in every checkout. What the panel itself knows — how many
-    # firm-years were scored each year — is still reported; the gates that
-    # removed the rest are simply not available to break out here, and the
-    # normalisation below leaves them at zero rather than inventing them.
+    # The exclusion ledger is a git-ignored build product of the Vietnamese
+    # pipeline and is not in every checkout. What the panel itself knows —
+    # how many firm-years were scored each year — is still reported; the
+    # gates that removed the rest are simply not available to break out here,
+    # and the normalisation below leaves them at zero rather than inventing
+    # them.
     drops_year = scores.groupby("score_year").size().to_frame("scored")
     print("note: no exclusion ledger in this checkout; scored counts only "
-          "(rebuild it with ../thesis + scripts/build_vietnam_data.py)")''',
+          "(rebuild it with python src/fscore_vietnam/schema_adapter_util.py)")''',
 }
 
 
