@@ -56,7 +56,7 @@ an order of magnitude of trading that no cost was ever charged for.
 | `notebooks/` | `01`/`02` synthetic demos; `03`/`04`/`05` full studies (US / Japan / Vietnam); `grid/` three robustness notebooks, nine cells each |
 | `data/` | git-ignored cache, rebuilt by the fetch scripts |
 | `results/` | CSVs and 300-dpi figures behind every table and chart in the report |
-| `tests/` | 24 tests, each pinning one design decision |
+| `tests/` | 25 tests, each pinning one design decision |
 
 ## Reproducing the results
 
